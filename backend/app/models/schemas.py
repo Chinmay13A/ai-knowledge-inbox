@@ -39,6 +39,7 @@ class ItemOut(BaseModel):
     title: str
     url: str | None
     status: ItemStatus
+    error: str | None = Field(default=None, description="Why processing failed (only when status is 'failed')")
     created_at: str
     chunk_count: int
     preview: str
@@ -51,6 +52,7 @@ class ItemOut(BaseModel):
             title=item.title,
             url=item.url,
             status=item.status,
+            error=item.error if item.status == "failed" else None,
             created_at=item.created_at,
             chunk_count=item.chunk_count,
             preview=item.content[:PREVIEW_CHARS],

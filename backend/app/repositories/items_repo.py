@@ -3,7 +3,7 @@
 import sqlite3
 from datetime import datetime, timezone
 
-from app.models.item import Item, SourceType
+from app.models.item import Item, ItemStatus, SourceType
 
 _SELECT_ITEMS = """
     SELECT items.*,
@@ -42,3 +42,24 @@ def list_items(conn: sqlite3.Connection, *, limit: int, offset: int) -> tuple[li
     ).fetchall()
     total = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
     return [Item.from_row(row) for row in rows], total
+
+
+def set_status(conn: sqlite3.Connection, item_id: int, status: ItemStatus, error: str | None = None) -> None:
+    conn.execute("UPDATE items SET status = ?, error = ? WHERE id = ?", (status, error, item_id))
+
+
+def item_ids_needing_embedding(conn: sqlite3.Connection, model_id: str) -> list[int]:
+    """Items not yet ready, or with any chunk lacking a vector from the current model."""
+    rows = conn.execute(
+        """
+        SELECT id FROM items
+        WHERE status != 'ready'
+           OR EXISTS (
+               SELECT 1 FROM chunks
+               WHERE chunks.item_id = items.id AND (embedding IS NULL OR embedding_model IS NOT ?)
+           )
+        ORDER BY id
+        """,
+        (model_id,),
+    ).fetchall()
+    return [row["id"] for row in rows]

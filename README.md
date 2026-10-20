@@ -10,7 +10,7 @@ A small web app to save notes and URLs, then ask questions about them. Answers c
 |---|---|
 | Backend | Python 3.10+, FastAPI, Pydantic |
 | Storage | SQLite (items, chunks, embedding vectors) |
-| AI | OpenAI embeddings + chat model |
+| AI | Provider-agnostic layer; default: Google Gemini (free tier) embeddings |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS v4 |
 
 ## Project layout
@@ -30,15 +30,48 @@ python -m venv venv
 venv\Scripts\activate          # macOS/Linux: source venv/bin/activate
 pip install -r requirements.txt
 copy .env.example .env         # macOS/Linux: cp .env.example .env
+# put a free Gemini key in .env:  EMBEDDING_API_KEY=...   (https://aistudio.google.com/apikey)
 uvicorn app.main:app --reload --port 8000
 ```
+
+Without a key the app still runs; new items just end up `failed` with a message telling you to set it.
 
 - API docs (Swagger): http://localhost:8000/docs
 - Health check: http://localhost:8000/health
 - Tests: `pytest`
-- Backfill chunks for items saved by an older version: `python -m app.scripts.reindex`
+- Backfill / retry: `python -m app.scripts.reindex` chunks items that have no chunks and embeds every item that is `pending`, `failed`, or embedded with a different model. Safe to run any time.
 
-Configuration lives in `backend/.env` (see `.env.example`): log level, CORS origins, DB path, URL fetch limits, `RESPECT_ROBOTS_TXT`, and chunking (`CHUNK_SIZE_CHARS`, `CHUNK_OVERLAP_CHARS`). Invalid values fail at startup with a clear message.
+Configuration lives in `backend/.env` (see `.env.example`): log level, CORS origins, DB path, URL fetch limits, `RESPECT_ROBOTS_TXT`, chunking (`CHUNK_SIZE_CHARS`, `CHUNK_OVERLAP_CHARS`) and embeddings (`EMBEDDING_*`). Invalid values fail at startup with a clear message.
+
+### Switching AI providers
+
+The code only talks to an `Embedder` interface; the provider is picked from `.env`. After switching, run `python -m app.scripts.reindex` to re-embed everything with the new model (vectors from different models are never mixed).
+
+```env
+# Google Gemini (default, free tier)
+EMBEDDING_PROVIDER=gemini
+EMBEDDING_MODEL=gemini-embedding-001
+EMBEDDING_DIMENSIONS=768
+EMBEDDING_API_KEY=<your Gemini key>
+```
+
+```env
+# OpenAI
+EMBEDDING_PROVIDER=openai_compatible
+EMBEDDING_BASE_URL=https://api.openai.com/v1
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSIONS=768
+EMBEDDING_API_KEY=<your OpenAI key>
+```
+
+```env
+# Local Ollama (free, offline; run `ollama pull nomic-embed-text` first)
+EMBEDDING_PROVIDER=openai_compatible
+EMBEDDING_BASE_URL=http://localhost:11434/v1
+EMBEDDING_MODEL=nomic-embed-text
+EMBEDDING_DIMENSIONS=
+EMBEDDING_API_KEY=
+```
 
 ### Frontend
 
@@ -91,7 +124,7 @@ curl -X POST http://localhost:8000/ingest   -H "Content-Type: application/json" 
 - `type` selects the payload shape: `note` needs `content` (non-blank, max 50,000 chars); `url` needs an `http`/`https` `url`.
 - A note's title is its first non-empty line (max 80 chars); a URL's title is the page title (falling back to the first line of its text).
 - If fetching fails, nothing is stored and an error explains why (see below).
-- `status` is `pending` until the item has been embedded for search.
+- **Processing is asynchronous.** The response comes back immediately with `status: "pending"`; embedding runs in a background task right after. Poll `GET /items` until the item is `ready`, or `failed` with a human-readable `error` (e.g. a missing or rejected API key, or a provider rate limit). Failed items keep their content and chunks; fix the cause and run `python -m app.scripts.reindex`.
 
 ### `GET /items` — list saved items
 
@@ -161,7 +194,8 @@ Every error uses the same shape:
 | Layer | Folder | Responsibility |
 |---|---|---|
 | API | `app/api/` | HTTP only: validate input, call a service, shape the response |
-| Services | `app/services/` | Business logic and orchestration (ingestion, page fetching) |
+| Services | `app/services/` | Business logic and orchestration (ingestion, page fetching, chunking, embedding pipeline) |
+| AI providers | `app/ai/` | Provider-agnostic interfaces (`Embedder`), one adapter per provider API, a factory that picks one from config, and shared HTTP retry/error handling |
 | Repositories | `app/repositories/` | All SQL; return domain objects |
 | Models | `app/models/` | Domain objects (`Item`, `Chunk`) and Pydantic request/response schemas |
 | Cross-cutting | `app/errors.py`, `app/middleware.py`, `app/logging_config.py`, `app/db.py` | Error format, request context, logging, DB connection |
@@ -197,6 +231,17 @@ Why:
 - Example: the Wikipedia article on RAG (15,404 characters) becomes 28 chunks.
 
 At scale / in production: size chunks in tokens using the embedding model's tokenizer; use heading-aware or semantic chunking (split where the topic changes); apply per-content-type strategies (code, tables); prefix chunks with the document title for extra context; store character offsets to highlight the exact passage in the source.
+
+### Embeddings & vector storage
+- **Providers behind an interface.** Services depend only on `Embedder` (`embed_documents`, `embed_query`, `model_id`). `app/ai/embeddings/factory.py` is the only code that knows concrete classes, so switching provider or model is a `.env` change. Two adapters cover most of the market: `gemini` and `openai_compatible` (OpenAI, Ollama, LM Studio, Together, Mistral, …). The answer-generating LLM (next step) follows the same pattern.
+- **Plain REST over `httpx` instead of vendor SDKs:** no lock-in, one shared retry/backoff and error-message path (`app/ai/http.py`) for every provider, and fully offline tests with a mock transport. Keys travel in headers, are stored as `SecretStr`, and are never logged.
+- **Default model: Gemini `gemini-embedding-001`** on the free tier (no cost), with retrieval task types: chunks are embedded as `RETRIEVAL_DOCUMENT` and questions as `RETRIEVAL_QUERY`, which Gemini optimizes for short-question-vs-passage search.
+- **768 dimensions** instead of the default 3,072: about 4× less storage and faster similarity search, with little quality loss for short chunks.
+- **Vectors are normalized to unit length**, so cosine similarity is a plain dot product at query time.
+- **Stored as float32 BLOBs in the `chunks` table** (~3 KB per chunk) together with the `model_id` that produced them (`gemini:gemini-embedding-001@768`). If the provider, model or dimensions change, the backfill detects stale vectors and re-embeds them; vectors from different models are never compared.
+- **Background processing:** `POST /ingest` stays fast and returns `pending`; a FastAPI background task embeds the chunks with its own DB connection, then writes all vectors and `status=ready` in one transaction (or `status=failed` + `error`). Already-embedded chunks are skipped, so retries cost nothing extra. The request ID is carried into the background task's logs.
+- **Free-tier caveats:** per-minute/day rate limits (handled with retries, exponential backoff and `Retry-After`; the backfill embeds one item at a time), and content sent on the free tier may be used by Google to improve its products. For private data in production, use a paid tier, another provider, or a local model (config-only change).
+- **At scale:** in-process background tasks are lost if the server restarts (items stay `pending` until the backfill runs); production would use a durable job queue (Celery/RQ/Arq) with a global rate limiter. A model change means re-embedding everything, which should run as a batch job. Storing vectors in SQLite is fine for thousands of chunks; beyond that, use a vector index (see retrieval).
 
 ### Ingestion: URLs
 - **Fetched on the server** with async `httpx`, so a slow site doesn't block other requests. Limits: 10 s timeout, 5 redirects, 5 MB per page, 100,000 characters of extracted text.

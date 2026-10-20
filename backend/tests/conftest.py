@@ -1,6 +1,9 @@
+import hashlib
+import re
 from collections.abc import Iterator
 from pathlib import Path
 
+import numpy as np
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -24,15 +27,56 @@ class StubFetcher:
         return self.result
 
 
+class FakeEmbedder:
+    """Deterministic, offline Embedder: a bag-of-words hashed into a small vector.
+
+    Texts sharing words get similar vectors, which is enough to test retrieval logic.
+    """
+
+    def __init__(self, dimensions: int = 64, model_id: str = "fake:hash@64") -> None:
+        self.dimensions = dimensions
+        self.model_id = model_id
+        self.error: Exception | None = None
+        self.document_calls: list[list[str]] = []
+
+    async def embed_documents(self, texts: list[str]) -> list[np.ndarray]:
+        self.document_calls.append(list(texts))
+        if self.error:
+            raise self.error
+        return [self.vector(text) for text in texts]
+
+    async def embed_query(self, text: str) -> np.ndarray:
+        if self.error:
+            raise self.error
+        return self.vector(text)
+
+    def vector(self, text: str) -> np.ndarray:
+        vector = np.zeros(self.dimensions, dtype=np.float32)
+        for word in re.findall(r"\w+", text.lower()):
+            vector[int(hashlib.md5(word.encode()).hexdigest(), 16) % self.dimensions] += 1.0
+        norm = np.linalg.norm(vector)
+        return vector / norm if norm else vector
+
+
+def make_settings(tmp_path: Path, **overrides: object) -> Settings:
+    """Settings that ignore backend/.env, so a developer's real keys never leak into tests."""
+    return Settings(_env_file=None, db_path=str(tmp_path / "test.db"), **overrides)
+
+
 @pytest.fixture
 def fetcher() -> StubFetcher:
     return StubFetcher()
 
 
 @pytest.fixture
-def app(tmp_path: Path, fetcher: StubFetcher) -> FastAPI:
-    """App wired to a throwaway SQLite file and a stub fetcher, so tests never touch real data or the network."""
-    return create_app(Settings(db_path=str(tmp_path / "test.db")), fetcher=fetcher)
+def embedder() -> FakeEmbedder:
+    return FakeEmbedder()
+
+
+@pytest.fixture
+def app(tmp_path: Path, fetcher: StubFetcher, embedder: FakeEmbedder) -> FastAPI:
+    """App wired to a throwaway SQLite file and fakes, so tests never touch real data or the network."""
+    return create_app(make_settings(tmp_path), fetcher=fetcher, embedder=embedder)
 
 
 @pytest.fixture

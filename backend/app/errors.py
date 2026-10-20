@@ -60,6 +60,17 @@ class UrlFetchTimeoutError(AppError):
     code = "url_fetch_timeout"
 
 
+class AIProviderError(AppError):
+    """An external AI provider (embeddings, LLM) failed or is misconfigured."""
+
+    status_code = 502
+    code = "ai_provider_error"
+
+
+class EmbeddingError(AIProviderError):
+    code = "embedding_failed"
+
+
 def error_response(
     request_id: str | None,
     status_code: int,

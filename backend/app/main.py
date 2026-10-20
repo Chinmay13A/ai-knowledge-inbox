@@ -7,6 +7,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.ai.embeddings.base import Embedder
+from app.ai.embeddings.factory import build_embedder
 from app.api import health, ingest, items
 from app.config import Settings, get_settings
 from app.db import init_db
@@ -26,7 +28,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-def create_app(settings: Settings | None = None, fetcher: PageFetcher | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    fetcher: PageFetcher | None = None,
+    embedder: Embedder | None = None,
+) -> FastAPI:
     settings = settings or get_settings()
     setup_logging(settings.log_level)
 
@@ -37,6 +43,7 @@ def create_app(settings: Settings | None = None, fetcher: PageFetcher | None = N
         max_bytes=settings.fetch_max_bytes,
         respect_robots_txt=settings.respect_robots_txt,
     )
+    app.state.embedder = embedder or build_embedder(settings)
 
     # Added last-to-first: RequestContextMiddleware runs inside CORS.
     app.add_middleware(RequestContextMiddleware)

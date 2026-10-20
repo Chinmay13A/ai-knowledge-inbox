@@ -1,15 +1,19 @@
 """Application settings, loaded from environment variables and `.env`."""
 
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import model_validator
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.models.chunk import ChunkingConfig
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # env_ignore_empty: a blank `KEY=` line in .env means "use the default".
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore", env_ignore_empty=True
+    )
 
     app_env: str = "development"
     log_level: str = "INFO"
@@ -26,12 +30,30 @@ class Settings(BaseSettings):
     chunk_size_chars: int = 800
     chunk_overlap_chars: int = 100
 
+    # Embeddings: switch provider/model here; the code only depends on the Embedder interface.
+    embedding_provider: Literal["gemini", "openai_compatible"] = "gemini"
+    embedding_model: str = "gemini-embedding-001"
+    embedding_dimensions: int | None = 768
+    embedding_api_key: SecretStr | None = None
+    embedding_base_url: str | None = None
+    embedding_batch_size: int = 50
+    embedding_timeout_s: float = 30.0
+    embedding_max_retries: int = 3
+
     @model_validator(mode="after")
     def _check_chunking(self) -> "Settings":
         if self.chunk_size_chars < 100:
             raise ValueError("CHUNK_SIZE_CHARS must be at least 100")
         if not 0 <= self.chunk_overlap_chars < self.chunk_size_chars // 2:
             raise ValueError("CHUNK_OVERLAP_CHARS must be >= 0 and less than half of CHUNK_SIZE_CHARS")
+        return self
+
+    @model_validator(mode="after")
+    def _check_embeddings(self) -> "Settings":
+        if self.embedding_provider == "openai_compatible" and not self.embedding_base_url:
+            raise ValueError("EMBEDDING_BASE_URL is required when EMBEDDING_PROVIDER=openai_compatible")
+        if self.embedding_batch_size < 1:
+            raise ValueError("EMBEDDING_BATCH_SIZE must be at least 1")
         return self
 
     @property

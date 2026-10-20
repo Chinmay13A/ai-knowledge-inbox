@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     chunk_index INTEGER NOT NULL,
     text        TEXT NOT NULL,
     embedding   BLOB,
+    embedding_model TEXT,
     UNIQUE (item_id, chunk_index)
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_item_id ON chunks(item_id);
@@ -48,8 +49,17 @@ def init_db(db_path: str) -> None:
         # WAL lets reads proceed while a write is in progress; the setting persists in the file.
         conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
+        # Columns added after a table first shipped (databases created by older versions).
+        _add_column_if_missing(conn, "chunks", "embedding_model", "TEXT")
     finally:
         conn.close()
+
+
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, column_type: str) -> None:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
+        conn.commit()
 
 
 def get_db(request: Request) -> Iterator[sqlite3.Connection]:

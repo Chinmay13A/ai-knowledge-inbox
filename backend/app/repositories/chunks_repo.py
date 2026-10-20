@@ -2,7 +2,10 @@
 
 import sqlite3
 
+import numpy as np
+
 from app.models.chunk import Chunk, StoredChunk
+from app.services.vectors import to_blob
 
 
 def insert_chunks(conn: sqlite3.Connection, item_id: int, chunks: list[Chunk]) -> None:
@@ -25,3 +28,23 @@ def item_ids_without_chunks(conn: sqlite3.Connection) -> list[int]:
         "SELECT id FROM items WHERE NOT EXISTS (SELECT 1 FROM chunks WHERE chunks.item_id = items.id) ORDER BY id"
     ).fetchall()
     return [row["id"] for row in rows]
+
+
+def chunks_missing_embeddings(conn: sqlite3.Connection, item_id: int, model_id: str) -> list[StoredChunk]:
+    """Chunks with no vector yet, or a vector from a different model (needs re-embedding)."""
+    rows = conn.execute(
+        """
+        SELECT id, item_id, chunk_index, text FROM chunks
+        WHERE item_id = ? AND (embedding IS NULL OR embedding_model IS NOT ?)
+        ORDER BY chunk_index
+        """,
+        (item_id, model_id),
+    ).fetchall()
+    return [StoredChunk.from_row(row) for row in rows]
+
+
+def set_embeddings(conn: sqlite3.Connection, vectors: list[tuple[int, np.ndarray]], model_id: str) -> None:
+    conn.executemany(
+        "UPDATE chunks SET embedding = ?, embedding_model = ? WHERE id = ?",
+        [(to_blob(vector), model_id, chunk_id) for chunk_id, vector in vectors],
+    )
