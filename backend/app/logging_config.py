@@ -4,6 +4,8 @@ import json
 import logging
 from datetime import datetime, timezone
 
+from app.request_context import request_id_var
+
 # Attributes every LogRecord has; anything else was passed via `extra=` and is logged as a field.
 _STANDARD_ATTRS = set(logging.makeLogRecord({}).__dict__) | {"message", "asctime", "taskName", "color_message"}
 
@@ -24,9 +26,21 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, default=str)
 
 
+class RequestIdFilter(logging.Filter):
+    """Adds the current request's ID to every log record emitted while handling it."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not hasattr(record, "request_id"):
+            request_id = request_id_var.get()
+            if request_id:
+                record.request_id = request_id
+        return True
+
+
 def setup_logging(level: str = "INFO") -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
+    handler.addFilter(RequestIdFilter())
 
     root = logging.getLogger()
     root.handlers = [handler]

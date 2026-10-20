@@ -1,19 +1,36 @@
 """App factory: wires settings, logging, middleware and routers. No business logic here."""
 
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import health
-from app.config import get_settings
+from app.api import health, ingest, items
+from app.config import Settings, get_settings
+from app.db import init_db
+from app.errors import register_exception_handlers
 from app.logging_config import setup_logging
 from app.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 
+logger = logging.getLogger(__name__)
 
-def create_app() -> FastAPI:
-    settings = get_settings()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    db_path = app.state.settings.db_path
+    init_db(db_path)
+    logger.info("db.initialized", extra={"db_path": db_path})
+    yield
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or get_settings()
     setup_logging(settings.log_level)
 
-    app = FastAPI(title="AI Knowledge Inbox API", version="0.1.0")
+    app = FastAPI(title="AI Knowledge Inbox API", version="0.1.0", lifespan=lifespan)
+    app.state.settings = settings
 
     # Added last-to-first: RequestContextMiddleware runs inside CORS.
     app.add_middleware(RequestContextMiddleware)
@@ -25,7 +42,10 @@ def create_app() -> FastAPI:
         expose_headers=[REQUEST_ID_HEADER],
     )
 
+    register_exception_handlers(app)
     app.include_router(health.router)
+    app.include_router(ingest.router)
+    app.include_router(items.router)
     return app
 
 
