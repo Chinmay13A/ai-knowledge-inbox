@@ -118,7 +118,12 @@ copy .env.example .env         # macOS/Linux: cp .env.example .env
 npm run dev
 ```
 
-Open http://localhost:5173. The badge in the header shows whether the backend is reachable.
+Open http://localhost:5173.
+
+- **Add content:** switch between *Note* and *URL*, then Save (Ctrl + Enter saves a note). Input is checked in the browser for instant feedback; errors from the backend (e.g. a blocked or unreachable site) are shown under the form.
+- **Saved items:** newest first, with type, title (URLs link to the source), age, chunk count, a preview and a status badge: *Indexing…* while embeddings are computed in the background, then *Ready* or *Failed* with the reason. The list refreshes itself while anything is indexing.
+- The header badge shows whether the backend is reachable. `VITE_API_URL` (in `frontend/.env`) points the UI at the backend.
+- Tests: `npm test` (Vitest + Testing Library; `fetch` is mocked, no backend needed). Type-check + build: `npm run build`. Lint: `npm run lint`.
 
 ## API
 
@@ -297,6 +302,15 @@ Every error uses the same shape:
 - Every request gets an `X-Request-ID` (an incoming one is reused, otherwise generated). It is returned in the response header and in error bodies, and is attached automatically to **every** log line written while handling that request, so one request can be traced end to end.
 - Each request ends with a `request.completed` line containing `method`, `path`, `status_code` and `duration_ms`. Unhandled exceptions are logged with a stack trace as `request.failed`.
 
+## Code structure (frontend)
+
+| Folder | Responsibility |
+|---|---|
+| `src/api/` | `client.ts`: the single `request<T>()` wrapper (JSON, readable `ApiError`s, unreachable-backend handling) and one typed function per endpoint; `types.ts` mirrors the backend schemas |
+| `src/hooks/` | Server state: `useItems` (list, paging, optimistic insert, status polling), `useIngest` (submit + error state) |
+| `src/components/` | Presentational components: `IngestForm`, `ItemList`, `ItemRow`, `StatusBadge`, `ErrorBanner`, `HealthBadge` |
+| `src/lib/` | Pure helpers: relative time formatting, input validation |
+
 ## Code structure (backend)
 
 | Layer | Folder | Responsibility |
@@ -375,6 +389,13 @@ At scale / in production: size chunks in tokens using the embedding model's toke
 - **Low temperature (0.2)** for factual, repeatable answers. Gemini 2.5 "thinking" is off by default (`LLM_THINKING_BUDGET=0`): it adds latency and tokens without much benefit for short, grounded answers.
 - **Observability:** `query.answered` logs retrieved/cited/invalid-citation counts, top score, model, input/output tokens, truncation, and retrieval vs. LLM latency. It records only the question's length, never its text.
 - **At scale / in production:** stream answers to the UI (SSE), cache answers for repeated questions, build an evaluation set to measure faithfulness and citation accuracy before changing prompts or models, add conversation history for follow-up questions, budget tokens when many long chunks are retrieved, add per-user rate limits, and use a paid tier or self-hosted model for private data.
+
+### Frontend state management
+- **Plain React hooks, no state library.** Server state lives in two small custom hooks (`useItems`, `useIngest`); components only render props and call callbacks. With one list and two forms, Redux/Zustand or React Query would add dependencies without removing real complexity. If the app grew (caching across many views, mutations invalidating several queries), React Query would be the next step.
+- **Optimistic insert:** a saved item appears at the top immediately from the `POST /ingest` response, without refetching the list.
+- **Polling for background work:** while any item is `pending`, the list re-fetches (every 2 s, backing off to 30 s if nothing changes, e.g. an item stranded by a server restart) and stops as soon as nothing is pending. Simple and cheap for a single user. **At scale:** push status changes over SSE/WebSockets instead of polling.
+- **Request hygiene:** every list request is cancellable (`AbortController`); a newer request aborts an older one, and unmounting cancels everything, so stale responses never overwrite fresh state.
+- **Client-side validation is UX only**: it gives instant feedback, while the backend remains the source of truth and re-validates everything. One `ApiError` type and one `errorMessage()` helper keep error display consistent.
 
 ### Ingestion: URLs
 - **Fetched on the server** with async `httpx`, so a slow site doesn't block other requests. Limits: 10 s timeout, 5 redirects, 5 MB per page, 100,000 characters of extracted text.

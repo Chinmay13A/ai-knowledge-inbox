@@ -1,3 +1,5 @@
+import type { IngestRequest, Item, ItemList } from './types'
+
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
 /** Error thrown for any failed API call; `status` is 0 when the backend could not be reached. */
@@ -22,7 +24,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
       headers: { 'Content-Type': 'application/json', ...init.headers },
     })
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') throw error
+    if (isAbortError(error)) throw error
     throw new ApiError(0, 'Backend unreachable')
   }
 
@@ -46,10 +48,28 @@ function extractErrorMessage(body: unknown): string | null {
   return null
 }
 
+export function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
 export interface HealthResponse {
   status: string
 }
 
 export function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
   return request<HealthResponse>('/health', { signal })
+}
+
+export function getItems(page: { limit: number; offset: number }, signal?: AbortSignal): Promise<ItemList> {
+  const query = new URLSearchParams({ limit: String(page.limit), offset: String(page.offset) })
+  return request<ItemList>(`/items?${query}`, { signal })
+}
+
+export function ingest(body: IngestRequest): Promise<Item> {
+  return request<Item>('/ingest', { method: 'POST', body: JSON.stringify(body) })
+}
+
+/** A user-facing message for any error thrown by the API layer. */
+export function errorMessage(error: unknown): string {
+  return error instanceof ApiError ? error.message : 'Something went wrong. Please try again.'
 }
