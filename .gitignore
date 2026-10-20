@@ -1,0 +1,31 @@
+# Secrets
+.env
+*.env.local
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+
+# Local data (SQLite DB)
+backend/data/
+*.db
+*.db-journal
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Assignment brief (not redistributed)
+Turium_AI_Interview_Assignment.pdf
+
+# Local working plan (not committed)
+PLAN.md
