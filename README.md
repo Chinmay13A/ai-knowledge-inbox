@@ -122,6 +122,7 @@ Open http://localhost:5173.
 
 - **Add content:** switch between *Note* and *URL*, then Save (Ctrl + Enter saves a note). Input is checked in the browser for instant feedback; errors from the backend (e.g. a blocked or unreachable site) are shown under the form.
 - **Saved items:** newest first, with type, title (URLs link to the source), age, chunk count, a preview and a status badge: *Indexing…* while embeddings are computed in the background, then *Ready* or *Failed* with the reason. The list refreshes itself while anything is indexing.
+- **Ask a question:** type a question and press Enter (Shift + Enter for a new line). The answer shows numbered citations like `[1]`; click one to jump to its source card. Cited sources are listed first, with any other retrieved passages under *Also retrieved (not cited)*. Each card shows the item's title (linked for URLs), a match percentage and the passage, expandable with *Show more*. If nothing relevant is saved, the panel says so instead of guessing.
 - The header badge shows whether the backend is reachable. `VITE_API_URL` (in `frontend/.env`) points the UI at the backend.
 - Tests: `npm test` (Vitest + Testing Library; `fetch` is mocked, no backend needed). Type-check + build: `npm run build`. Lint: `npm run lint`.
 
@@ -307,9 +308,9 @@ Every error uses the same shape:
 | Folder | Responsibility |
 |---|---|
 | `src/api/` | `client.ts`: the single `request<T>()` wrapper (JSON, readable `ApiError`s, unreachable-backend handling) and one typed function per endpoint; `types.ts` mirrors the backend schemas |
-| `src/hooks/` | Server state: `useItems` (list, paging, optimistic insert, status polling), `useIngest` (submit + error state) |
-| `src/components/` | Presentational components: `IngestForm`, `ItemList`, `ItemRow`, `StatusBadge`, `ErrorBanner`, `HealthBadge` |
-| `src/lib/` | Pure helpers: relative time formatting, input validation |
+| `src/hooks/` | Server state: `useItems` (list, paging, optimistic insert, status polling), `useIngest` (submit + error state), `useAsk` (latest-question-wins querying) |
+| `src/components/` | Presentational components: `IngestForm`, `ItemList`, `ItemRow`, `StatusBadge`, `AskPanel`, `AnswerView`, `SourceList`, `SourceCard`, `ErrorBanner`, `HealthBadge` |
+| `src/lib/` | Pure helpers: relative time formatting, input validation, citation parsing |
 
 ## Code structure (backend)
 
@@ -395,6 +396,9 @@ At scale / in production: size chunks in tokens using the embedding model's toke
 - **Optimistic insert:** a saved item appears at the top immediately from the `POST /ingest` response, without refetching the list.
 - **Polling for background work:** while any item is `pending`, the list re-fetches (every 2 s, backing off to 30 s if nothing changes, e.g. an item stranded by a server restart) and stops as soon as nothing is pending. Simple and cheap for a single user. **At scale:** push status changes over SSE/WebSockets instead of polling.
 - **Request hygiene:** every list request is cancellable (`AbortController`); a newer request aborts an older one, and unmounting cancels everything, so stale responses never overwrite fresh state.
+- **Only the latest question counts:** asking again aborts the previous `POST /query`, so a slow earlier answer can never replace a newer one. The previous answer stays on screen (dimmed) while the next one loads, and stays if the new request fails.
+- **Citations are parsed, not trusted:** the answer is split into text and `[n]` segments and rendered as React elements, never as HTML (`dangerouslySetInnerHTML` is not used), so markup in model output can't be injected. Numbers that don't match a returned source stay plain text instead of becoming broken links, which mirrors the backend dropping invalid citations.
+- **Single-turn, non-streaming by design:** each question is independent and the answer arrives in one response. At scale: stream tokens over SSE for faster perceived latency, and add conversation history for follow-up questions.
 - **Client-side validation is UX only**: it gives instant feedback, while the backend remains the source of truth and re-validates everything. One `ApiError` type and one `errorMessage()` helper keep error display consistent.
 
 ### Ingestion: URLs

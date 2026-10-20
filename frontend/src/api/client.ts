@@ -1,4 +1,4 @@
-import type { IngestRequest, Item, ItemList } from './types'
+import type { IngestRequest, Item, ItemList, QueryRequest, QueryResponse } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -72,4 +72,8 @@ export function ingest(body: IngestRequest): Promise<Item> {
 /** A user-facing message for any error thrown by the API layer. */
 export function errorMessage(error: unknown): string {
   return error instanceof ApiError ? error.message : 'Something went wrong. Please try again.'
+}
+
+export function askQuestion(body: QueryRequest, signal?: AbortSignal): Promise<QueryResponse> {
+  return request<QueryResponse>('/query', { method: 'POST', body: JSON.stringify(body), signal })
 }

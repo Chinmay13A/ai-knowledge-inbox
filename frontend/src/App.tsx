@@ -1,3 +1,4 @@
+import { AskPanel } from './components/AskPanel'
 import { HealthBadge } from './components/HealthBadge'
 import { IngestForm } from './components/IngestForm'
 import { ItemList } from './components/ItemList'
@@ -21,10 +22,7 @@ function App() {
           <ItemList {...items} />
         </div>
 
-        <section className="h-fit rounded-lg border border-gray-200 bg-white p-4 lg:sticky lg:top-6">
-          <h2 className="mb-2 font-medium">Ask a question</h2>
-          <p className="text-sm text-gray-500">Coming in Step 8.</p>
-        </section>
+        <AskPanel readyCount={items.items.filter((item) => item.status === 'ready').length} />
       </main>
     </div>
   )
