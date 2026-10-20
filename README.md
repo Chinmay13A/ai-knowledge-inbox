@@ -264,7 +264,6 @@ All settings live in `backend/.env` (template: `backend/.env.example`). Invalid 
 | `DB_PATH` | `data/inbox.db` | SQLite file (created on startup) |
 | `MAX_REQUEST_BYTES` | `1000000` | Larger bodies → `413` |
 | `RECOVER_PENDING_ON_STARTUP` | `true` | Re-embed items left `pending` by a previous run |
-| `APP_ENV` | `development` | Environment label; not currently used by the code |
 | `FETCH_TIMEOUT_S` / `FETCH_MAX_BYTES` | `10` / `5000000` | URL fetch limits |
 | `RESPECT_ROBOTS_TXT` | `true` | Check the site's robots.txt before fetching |
 | `CHUNK_SIZE_CHARS` / `CHUNK_OVERLAP_CHARS` | `800` / `100` | Chunking (overlap must be < size/2) |

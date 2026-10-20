@@ -15,7 +15,6 @@ class Settings(BaseSettings):
         env_file=".env", env_file_encoding="utf-8", extra="ignore", env_ignore_empty=True, env_parse_none_str="none"
     )
 
-    app_env: str = "development"
     log_level: str = "INFO"
     # Kept as a comma-separated string so it can be set as a plain env var.
     cors_origins: str = "http://localhost:5173"
