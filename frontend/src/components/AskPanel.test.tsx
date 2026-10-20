@@ -27,7 +27,7 @@ const RESPONSE: QueryResponse = {
     source(1, { item_title: 'RAG - Wikipedia', item_url: 'https://en.wikipedia.org/wiki/RAG', source_type: 'url', score: 0.81 }),
     source(2, { cited: false, snippet: 'x'.repeat(400) }),
   ],
-  model: 'gemini:gemini-2.5-flash',
+  model: 'gemini:gemini-3.5-flash',
   truncated: false,
 }
 
@@ -82,7 +82,6 @@ describe('AskPanel', () => {
     const card = document.getElementById('source-1') as HTMLElement
     expect(card.scrollIntoView).toHaveBeenCalled()
     expect(card).toHaveAttribute('data-highlighted', 'true')
-    expect(screen.getByText('Answered by gemini:gemini-2.5-flash')).toBeInTheDocument()
   })
 
   it('groups uncited sources and shows source details', async () => {
@@ -111,7 +110,6 @@ describe('AskPanel', () => {
     await askQuestion(user)
 
     expect(await screen.findByText(/No relevant content in your inbox/)).toBeInTheDocument()
-    expect(screen.queryByText(/Answered by/)).not.toBeInTheDocument()
   })
 
   it('shows a notice when the answer was truncated', async () => {

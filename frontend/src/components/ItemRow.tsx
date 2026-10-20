@@ -41,13 +41,9 @@ export function ItemRow({ item, deleting = false, onDelete }: ItemRowProps) {
       {item.status === 'failed' && item.error && <p className="text-xs text-red-700">{item.error}</p>}
 
       <div className="flex items-center justify-between gap-3 text-xs text-gray-500">
-        <p>
-          <time dateTime={item.created_at} title={formatTimestamp(item.created_at)}>
-            {formatRelativeTime(item.created_at)}
-          </time>
-          {' · '}
-          {item.chunk_count} {item.chunk_count === 1 ? 'chunk' : 'chunks'}
-        </p>
+        <time dateTime={item.created_at} title={formatTimestamp(item.created_at)}>
+          {formatRelativeTime(item.created_at)}
+        </time>
         {onDelete && (
           <button
             type="button"

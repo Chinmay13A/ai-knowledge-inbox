@@ -1,4 +1,4 @@
-import type { HealthResponse, IngestRequest, Item, ItemList, QueryRequest, QueryResponse } from './types'
+import type { IngestRequest, Item, ItemList, QueryRequest, QueryResponse } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -50,10 +50,6 @@ function extractErrorMessage(body: unknown): string | null {
 
 export function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
-}
-
-export function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
-  return request<HealthResponse>('/health', { signal })
 }
 
 export function getItems(page: { limit: number; offset: number }, signal?: AbortSignal): Promise<ItemList> {

@@ -10,7 +10,7 @@ A small web app to save notes and URLs, then ask questions about them. Answers c
 |---|---|
 | Backend | Python 3.10+, FastAPI, Pydantic |
 | Storage | SQLite (items, chunks, embedding vectors) |
-| AI | Provider-agnostic layer; default: Google Gemini free tier (`gemini-embedding-001` + `gemini-2.5-flash`) |
+| AI | Provider-agnostic layer; default: Google Gemini free tier (`gemini-embedding-001` + `gemini-3.5-flash`) |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS v4 |
 
 ## Project layout
@@ -81,7 +81,7 @@ EMBEDDING_API_KEY=
 ```env
 # Google Gemini (default, free tier; reuses EMBEDDING_API_KEY when LLM_API_KEY is blank)
 LLM_PROVIDER=gemini
-LLM_MODEL=gemini-2.5-flash
+LLM_MODEL=gemini-3.5-flash
 LLM_THINKING_BUDGET=0
 ```
 
@@ -121,9 +121,9 @@ npm run dev
 Open http://localhost:5173.
 
 - **Add content:** switch between *Note* and *URL*, then Save (Ctrl + Enter saves a note). Input is checked in the browser for instant feedback; errors from the backend (e.g. a blocked or unreachable site) are shown under the form.
-- **Saved items:** newest first, with type, title (URLs link to the source), age, chunk count, a preview and a status badge: *Indexing…* while embeddings are computed in the background, then *Ready* or *Failed* with the reason. The list refreshes itself while anything is indexing. *Delete* (with confirmation) removes an item and its chunks.
+- **Saved items:** newest first, with type, title (URLs link to the source), age, a preview and a status badge: *Indexing…* while embeddings are computed in the background, then *Ready* or *Failed* with the reason. The list refreshes itself while anything is indexing. *Delete* (with confirmation) removes an item and its chunks.
 - **Ask a question:** type a question and press Enter (Shift + Enter for a new line). The answer shows numbered citations like `[1]`; click one to jump to its source card. Cited sources are listed first, with any other retrieved passages under *Also retrieved (not cited)*. Each card shows the item's title (linked for URLs), a match percentage and the passage, expandable with *Show more*. If nothing relevant is saved, the panel says so instead of guessing.
-- The header badge shows whether the backend is reachable. `VITE_API_URL` (in `frontend/.env`) points the UI at the backend.
+- `VITE_API_URL` (in `frontend/.env`) points the UI at the backend.
 - Tests: `npm test` (Vitest + Testing Library; `fetch` is mocked, no backend needed). Type-check + build: `npm run build`. Lint: `npm run lint`.
 
 ## API
@@ -196,7 +196,7 @@ curl -X DELETE http://localhost:8000/items/3
 { "status": "ok", "database": "ok", "embeddings": "not_configured", "llm": "not_configured" }
 ```
 
-`200` while the database works; missing AI keys are reported as `not_configured` but aren't fatal (the UI shows "AI not configured"). `503` with `"status": "degraded"` if the database is unreachable.
+`200` while the database works; missing AI keys are reported as `not_configured` but aren't fatal. `503` with `"status": "degraded"` if the database is unreachable.
 
 ### `GET /items/{id}/chunks` — inspect chunking (debugging aid)
 
@@ -271,7 +271,7 @@ curl -X POST http://localhost:8000/query \
       "score": 0.8123
     }
   ],
-  "model": "gemini:gemini-2.5-flash",
+  "model": "gemini:gemini-3.5-flash",
   "truncated": false
 }
 ```
@@ -328,7 +328,7 @@ Every error uses the same shape:
 |---|---|
 | `src/api/` | `client.ts`: the single `request<T>()` wrapper (JSON, readable `ApiError`s, unreachable-backend handling) and one typed function per endpoint; `types.ts` mirrors the backend schemas |
 | `src/hooks/` | Server state: `useItems` (list, paging, optimistic insert, status polling), `useIngest` (submit + error state), `useAsk` (latest-question-wins querying) |
-| `src/components/` | Presentational components: `IngestForm`, `ItemList`, `ItemRow`, `StatusBadge`, `AskPanel`, `AnswerView`, `SourceList`, `SourceCard`, `ErrorBanner`, `HealthBadge` |
+| `src/components/` | Presentational components: `IngestForm`, `ItemList`, `ItemRow`, `StatusBadge`, `AskPanel`, `AnswerView`, `SourceList`, `SourceCard`, `ErrorBanner` |
 | `src/lib/` | Pure helpers: relative time formatting, input validation, citation parsing |
 
 ## Code structure (backend)
@@ -359,7 +359,7 @@ Every error uses the same shape:
 - `GET /items` returns previews instead of full content to keep the list response small, and uses limit/offset paging. **At scale:** offset paging gets slow on deep pages, so switch to cursor-based paging (`?before=<id>`).
 - **Duplicate URLs → 409**, checked *before* fetching (no wasted network call) and again on the final URL after redirects (e.g. `http`→`https`, short links). Matching is exact; production would canonicalise URLs (strip tracking parameters, fragments, `www.`) and add a unique index. Notes are never de-duplicated: saving the same text twice can be intentional.
 - **Request size limit:** bodies over `MAX_REQUEST_BYTES` (1 MB) are rejected with 413 from the `Content-Length` header, before anything is read into memory. (A chunked upload without that header would still be bounded by the field validators; a reverse proxy limit is the production answer.)
-- **Health is readiness, not just liveness:** `/health` checks the database and reports whether the AI providers are configured, so a misconfiguration is visible immediately (and the UI shows it).
+- **Health is readiness, not just liveness:** `/health` checks the database and reports whether the AI providers are configured, so a misconfiguration is visible immediately to monitoring and in Swagger.
 
 ### Chunking strategy
 Implemented in `app/services/chunker.py` as pure, deterministic functions. Defaults: **800 characters per chunk, 100 characters of overlap**.
@@ -394,6 +394,7 @@ At scale / in production: size chunks in tokens using the embedding model's toke
 - **Exact brute-force cosine similarity.** All vectors from the current embedding model are loaded and scored against the query vector in one NumPy matrix product. Because vectors are stored at unit length, the dot product *is* the cosine similarity. No index to build or keep in sync, results are exact, and it stays fast (well under 50 ms) up to tens of thousands of chunks, which is plenty for a personal inbox.
 - **Query vs. document embeddings:** questions are embedded with the provider's query mode (`RETRIEVAL_QUERY` on Gemini) and chunks with document mode, which improves matching a short question against longer passages.
 - **Relevance threshold (`RETRIEVAL_MIN_SCORE`):** chunks below it are dropped, so an off-topic question gets *no* context instead of the "least irrelevant" chunks. This lets the answer step say "I don't know" rather than invent an answer from unrelated text. The useful range depends on the embedding model, so it's configurable and should be calibrated per provider.
+  - **Calibrated for Gemini (`gemini-embedding-001@768`):** on real data, relevant questions scored **0.77–0.85** against the right chunks, while off-topic questions ("capital of Peru", "pizza recipe") topped out at **0.52–0.57** against unrelated notes. The default **0.6** sits in that gap: off-topic questions return "couldn't find it" without an LLM call, and relevant chunks pass with a wide margin. Other embedding models have different score ranges, so re-check with `POST /search` after switching.
 - **Safe by construction:** only vectors produced by the current `model_id` are compared; unembedded, failed or stale-model chunks are skipped; mismatched vector sizes are logged and ignored. An empty inbox returns no results without spending a provider call. Ties are broken by chunk id, so results are deterministic.
 - **Privacy in logs:** `retrieval.completed` records candidate count, results, top score and timing, but only the query's length, never its text.
 - **At scale:** loading every vector per query is O(n) in time and memory. Next steps, in order: cache the matrix in memory and invalidate it on writes; then use an approximate-nearest-neighbour index (sqlite-vec, FAISS, or Postgres + pgvector with HNSW). Quality improvements: hybrid search (BM25 keyword + vectors) for names and exact terms, a cross-encoder re-ranker, and per-item diversity so one long article doesn't take every top-k slot.
@@ -411,7 +412,8 @@ At scale / in production: size chunks in tokens using the embedding model's toke
 
 - **Numbered sources and citation parsing:** each chunk is sent as `<source id="n" title="…" url="…">…</source>`, and `[n]` markers (including `[1, 3]`) are parsed out of the answer. Numbers that don't match a source are dropped (and counted in the logs), so a hallucinated citation can never point at the wrong document. The response returns every retrieved source with a `cited` flag.
 - **Prompt-injection defences:** saved web pages are untrusted, so sources are delimited, their attributes escaped, and the model is explicitly told to ignore instructions inside them. This reduces but cannot eliminate the risk, which is why the model only writes text: it has no tools and can't trigger actions.
-- **Low temperature (0.2)** for factual, repeatable answers. Gemini 2.5 "thinking" is off by default (`LLM_THINKING_BUDGET=0`): it adds latency and tokens without much benefit for short, grounded answers.
+- **Model choice:** `gemini-3.5-flash` (fast on the free tier; ~2 s per answer). Google closes older models to new API keys over time (`gemini-2.5-flash` is already unavailable to new users), which is exactly why the model is a single `LLM_MODEL` setting rather than code.
+- **Low temperature (0.2)** for factual, repeatable answers. Gemini "thinking" is off by default (`LLM_THINKING_BUDGET=0`): it adds latency and tokens without much benefit for short, grounded answers.
 - **Observability:** `query.answered` logs retrieved/cited/invalid-citation counts, top score, model, input/output tokens, truncation, and retrieval vs. LLM latency. It records only the question's length, never its text.
 - **At scale / in production:** stream answers to the UI (SSE), cache answers for repeated questions, build an evaluation set to measure faithfulness and citation accuracy before changing prompts or models, add conversation history for follow-up questions, budget tokens when many long chunks are retrieved, add per-user rate limits, and use a paid tier or self-hosted model for private data.
 

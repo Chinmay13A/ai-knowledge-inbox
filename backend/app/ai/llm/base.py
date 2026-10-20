@@ -15,7 +15,7 @@ class Completion:
 
 
 class ChatModel(Protocol):
-    model_id: str  # provider + model, e.g. "gemini:gemini-2.5-flash" (returned to clients and logged)
+    model_id: str  # provider + model, e.g. "gemini:gemini-3.5-flash" (returned to clients and logged)
 
     def check_ready(self) -> None:
         """Raises AINotConfiguredError if this model cannot be used at all (e.g. no API key)."""

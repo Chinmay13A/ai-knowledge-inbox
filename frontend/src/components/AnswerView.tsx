@@ -59,7 +59,6 @@ export function AnswerView({ result }: { result: QueryResponse }) {
         {result.truncated && (
           <p className="mt-2 text-xs text-amber-700">The answer was cut off at the length limit.</p>
         )}
-        {result.model && <p className="mt-2 text-xs text-gray-500">Answered by {result.model}</p>}
       </div>
 
       {result.sources.length > 0 ? (

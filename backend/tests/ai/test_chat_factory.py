@@ -17,7 +17,7 @@ def test_gemini_reuses_the_embedding_key_by_default() -> None:
     model = build_chat_model(settings(embedding_api_key="shared-key"))
 
     assert isinstance(model, GeminiChatModel)
-    assert model.model_id == "gemini:gemini-2.5-flash"
+    assert model.model_id == "gemini:gemini-3.5-flash"
 
 
 def test_explicit_llm_key_wins() -> None:

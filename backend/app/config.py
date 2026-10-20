@@ -46,20 +46,20 @@ class Settings(BaseSettings):
 
     # Answer generation (LLM): same switching model as embeddings.
     llm_provider: Literal["gemini", "openai_compatible"] = "gemini"
-    llm_model: str = "gemini-2.5-flash"
+    llm_model: str = "gemini-3.5-flash"
     llm_api_key: SecretStr | None = None  # blank + same provider as embeddings -> reuses EMBEDDING_API_KEY
     llm_base_url: str | None = None
     llm_temperature: float = 0.2
     llm_max_output_tokens: int = 1024
     llm_timeout_s: float = 60.0
     llm_max_retries: int = 3
-    # Gemini 2.5 "thinking" tokens count toward the output limit and add latency. 0 = off (default),
-    # -1 = dynamic (needed for gemini-2.5-pro), none = don't send it (models without thinking). Gemini only.
+    # Gemini "thinking" tokens count toward the output limit and add latency. 0 = off (default),
+    # -1 = dynamic (for models that cannot turn it off), none = don't send it (models without thinking). Gemini only.
     llm_thinking_budget: int | None = 0
 
     # Retrieval. The min score is a cosine similarity; its useful range depends on the embedding model.
     retrieval_top_k: int = 5
-    retrieval_min_score: float = 0.5
+    retrieval_min_score: float = 0.6  # calibrated for gemini-embedding-001@768 (see README)
 
     @model_validator(mode="after")
     def _check_chunking(self) -> "Settings":
