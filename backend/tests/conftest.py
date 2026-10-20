@@ -7,12 +7,32 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from app.services.fetcher import FetchedPage
+
+
+class StubFetcher:
+    """Stands in for PageFetcher in API tests: returns a fixed page or raises a fixed error."""
+
+    def __init__(self, result: FetchedPage | Exception | None = None) -> None:
+        self.result = result or FetchedPage(url="https://example.com/article", title="Example", text="Body")
+        self.requested: list[str] = []
+
+    async def fetch(self, url: str) -> FetchedPage:
+        self.requested.append(url)
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
 
 
 @pytest.fixture
-def app(tmp_path: Path) -> FastAPI:
-    """App wired to a throwaway SQLite file, so tests never touch real data."""
-    return create_app(Settings(db_path=str(tmp_path / "test.db")))
+def fetcher() -> StubFetcher:
+    return StubFetcher()
+
+
+@pytest.fixture
+def app(tmp_path: Path, fetcher: StubFetcher) -> FastAPI:
+    """App wired to a throwaway SQLite file and a stub fetcher, so tests never touch real data or the network."""
+    return create_app(Settings(db_path=str(tmp_path / "test.db")), fetcher=fetcher)
 
 
 @pytest.fixture

@@ -13,6 +13,7 @@ from app.db import init_db
 from app.errors import register_exception_handlers
 from app.logging_config import setup_logging
 from app.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
+from app.services.fetcher import PageFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +26,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, fetcher: PageFetcher | None = None) -> FastAPI:
     settings = settings or get_settings()
     setup_logging(settings.log_level)
 
     app = FastAPI(title="AI Knowledge Inbox API", version="0.1.0", lifespan=lifespan)
     app.state.settings = settings
+    app.state.fetcher = fetcher or PageFetcher(
+        timeout_s=settings.fetch_timeout_s,
+        max_bytes=settings.fetch_max_bytes,
+        respect_robots_txt=settings.respect_robots_txt,
+    )
 
     # Added last-to-first: RequestContextMiddleware runs inside CORS.
     app.add_middleware(RequestContextMiddleware)

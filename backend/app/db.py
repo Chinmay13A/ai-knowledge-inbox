@@ -23,7 +23,9 @@ CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at DESC);
 
 
 def connect(db_path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
+    # FastAPI may open the connection in a worker thread and use it from an async route.
+    # Each connection still belongs to exactly one request, so sharing across threads is safe.
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn

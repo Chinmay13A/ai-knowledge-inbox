@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
     db_path: str = "data/inbox.db"
 
+    # URL ingestion
+    fetch_timeout_s: float = 10.0
+    fetch_max_bytes: int = 5_000_000
+    respect_robots_txt: bool = True
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

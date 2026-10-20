@@ -25,9 +25,34 @@ class AppError(Exception):
         self.message = message
 
 
-class NotImplementedFeatureError(AppError):
-    status_code = 501
-    code = "not_implemented"
+class UrlNotAllowedError(AppError):
+    status_code = 422
+    code = "url_not_allowed"
+
+
+class RobotsDisallowedError(AppError):
+    status_code = 422
+    code = "blocked_by_robots"
+
+
+class UnsupportedContentError(AppError):
+    status_code = 422
+    code = "unsupported_content"
+
+
+class EmptyContentError(AppError):
+    status_code = 422
+    code = "empty_content"
+
+
+class UrlFetchError(AppError):
+    status_code = 502
+    code = "url_fetch_failed"
+
+
+class UrlFetchTimeoutError(AppError):
+    status_code = 504
+    code = "url_fetch_timeout"
 
 
 def error_response(
