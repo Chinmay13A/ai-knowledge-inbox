@@ -38,8 +38,8 @@ uvicorn app.main:app --reload --port 8000
 Without a key the app still runs: new items end up `failed` and `POST /query` returns `503 ai_not_configured`, each with a message saying which key to set.
 
 - API docs (Swagger): http://localhost:8000/docs
-- Health check: http://localhost:8000/health
-- Tests: `pytest`
+- Health check: http://localhost:8000/health (database + AI configuration readiness)
+- Tests: `pytest` · Lint: `ruff check .` · Format check: `ruff format --check .`
 - Backfill / retry: `python -m app.scripts.reindex` chunks items that have no chunks and embeds every item that is `pending`, `failed`, or embedded with a different model. Safe to run any time.
 
 Configuration lives in `backend/.env` (see `.env.example`): log level, CORS origins, DB path, URL fetch limits, `RESPECT_ROBOTS_TXT`, chunking (`CHUNK_SIZE_CHARS`, `CHUNK_OVERLAP_CHARS`), embeddings (`EMBEDDING_*`), retrieval (`RETRIEVAL_TOP_K`, `RETRIEVAL_MIN_SCORE`) and answer generation (`LLM_*`). A blank value means "use the default"; `none` explicitly unsets an optional value. Invalid values fail at startup with a clear message.
@@ -121,7 +121,7 @@ npm run dev
 Open http://localhost:5173.
 
 - **Add content:** switch between *Note* and *URL*, then Save (Ctrl + Enter saves a note). Input is checked in the browser for instant feedback; errors from the backend (e.g. a blocked or unreachable site) are shown under the form.
-- **Saved items:** newest first, with type, title (URLs link to the source), age, chunk count, a preview and a status badge: *Indexing…* while embeddings are computed in the background, then *Ready* or *Failed* with the reason. The list refreshes itself while anything is indexing.
+- **Saved items:** newest first, with type, title (URLs link to the source), age, chunk count, a preview and a status badge: *Indexing…* while embeddings are computed in the background, then *Ready* or *Failed* with the reason. The list refreshes itself while anything is indexing. *Delete* (with confirmation) removes an item and its chunks.
 - **Ask a question:** type a question and press Enter (Shift + Enter for a new line). The answer shows numbered citations like `[1]`; click one to jump to its source card. Cited sources are listed first, with any other retrieved passages under *Also retrieved (not cited)*. Each card shows the item's title (linked for URLs), a match percentage and the passage, expandable with *Show more*. If nothing relevant is saved, the panel says so instead of guessing.
 - The header badge shows whether the backend is reachable. `VITE_API_URL` (in `frontend/.env`) points the UI at the backend.
 - Tests: `npm test` (Vitest + Testing Library; `fetch` is mocked, no backend needed). Type-check + build: `npm run build`. Lint: `npm run lint`.
@@ -181,6 +181,22 @@ curl "http://localhost:8000/items?limit=50&offset=0"
 ```
 
 `limit` is 1–200 (default 50), `offset` ≥ 0. Each item includes `chunk_count`.
+
+### `DELETE /items/{id}` — delete an item
+
+```bash
+curl -X DELETE http://localhost:8000/items/3
+```
+
+`204 No Content`. The item's chunks and vectors are deleted with it. Unknown ID → `404 item_not_found`.
+
+### `GET /health` — readiness
+
+```json
+{ "status": "ok", "database": "ok", "embeddings": "not_configured", "llm": "not_configured" }
+```
+
+`200` while the database works; missing AI keys are reported as `not_configured` but aren't fatal (the UI shows "AI not configured"). `503` with `"status": "degraded"` if the database is unreachable.
 
 ### `GET /items/{id}/chunks` — inspect chunking (debugging aid)
 
@@ -284,6 +300,8 @@ Every error uses the same shape:
 |---|---|---|
 | 400 | `invalid_json` | Request body is not valid JSON |
 | 404 | `item_not_found` | No item with that ID |
+| 409 | `duplicate_url` | That URL (as submitted, or after redirects) is already saved; the error includes the existing `item_id` |
+| 413 | `payload_too_large` | Request body larger than `MAX_REQUEST_BYTES` (1 MB) |
 | 404 / 405 | `http_error` | Unknown route or wrong method |
 | 422 | `validation_error` | Body or query parameters fail validation |
 | 422 | `url_not_allowed` | URL points to a private/internal address, or its host can't be resolved |
@@ -301,7 +319,8 @@ Every error uses the same shape:
 
 - Every log line is a single JSON object (`ts`, `level`, `logger`, `message`, plus context fields such as `item_id`).
 - Every request gets an `X-Request-ID` (an incoming one is reused, otherwise generated). It is returned in the response header and in error bodies, and is attached automatically to **every** log line written while handling that request, so one request can be traced end to end.
-- Each request ends with a `request.completed` line containing `method`, `path`, `status_code` and `duration_ms`. Unhandled exceptions are logged with a stack trace as `request.failed`.
+- Each request ends with a `request.completed` line containing `method`, `path`, `status_code` and `duration_ms`, logged at INFO for 2xx/3xx, **WARNING for 4xx and ERROR for 5xx**, so problems stand out when filtering. Unhandled exceptions are logged with a stack trace as `request.failed`.
+- Lifecycle events are logged too: `item.ingested`, `item.duplicate_url`, `item.deleted`, `fetch.*`, `embedding.*`, `retrieval.completed`, `query.answered`, `startup.recovery`.
 
 ## Code structure (frontend)
 
@@ -330,6 +349,7 @@ Every error uses the same shape:
 - One file, no extra infrastructure, and enough for a single-user inbox. WAL mode lets reads continue during a write.
 - Plain `sqlite3` behind a small repository layer instead of an ORM: the schema is tiny, all SQL lives in one module, and moving to Postgres later only touches the repositories.
 - One connection per request; schema is created on startup with `CREATE TABLE IF NOT EXISTS` (additive only, no migration tool needed yet).
+- **Busy timeout (5 s):** a request and a background embedding task can write at the same moment; the second waits for the lock instead of failing with "database is locked". SQLite still has a single writer, which is the first thing to outgrow (→ Postgres).
 - Two tables: `items` (raw content + metadata) and `chunks` (`item_id`, `chunk_index`, `text`, and an `embedding` column filled in by the embedding step). Chunks are deleted with their item (`ON DELETE CASCADE`).
 - An item and its chunks are written in **one transaction**, so a failure can never leave an item without chunks (or orphan chunks). Repositories only run SQL; the service layer owns the transaction.
 - **At scale:** SQLite allows one writer at a time, and the DB lives on a single machine. Production would use Postgres with a migration tool (e.g. Alembic).
@@ -337,6 +357,9 @@ Every error uses the same shape:
 ### API
 - `POST /ingest` takes one payload whose `type` field (`note` | `url`) decides which fields are required. One endpoint, but each shape is validated strictly.
 - `GET /items` returns previews instead of full content to keep the list response small, and uses limit/offset paging. **At scale:** offset paging gets slow on deep pages, so switch to cursor-based paging (`?before=<id>`).
+- **Duplicate URLs → 409**, checked *before* fetching (no wasted network call) and again on the final URL after redirects (e.g. `http`→`https`, short links). Matching is exact; production would canonicalise URLs (strip tracking parameters, fragments, `www.`) and add a unique index. Notes are never de-duplicated: saving the same text twice can be intentional.
+- **Request size limit:** bodies over `MAX_REQUEST_BYTES` (1 MB) are rejected with 413 from the `Content-Length` header, before anything is read into memory. (A chunked upload without that header would still be bounded by the field validators; a reverse proxy limit is the production answer.)
+- **Health is readiness, not just liveness:** `/health` checks the database and reports whether the AI providers are configured, so a misconfiguration is visible immediately (and the UI shows it).
 
 ### Chunking strategy
 Implemented in `app/services/chunker.py` as pure, deterministic functions. Defaults: **800 characters per chunk, 100 characters of overlap**.
@@ -364,7 +387,8 @@ At scale / in production: size chunks in tokens using the embedding model's toke
 - **Stored as float32 BLOBs in the `chunks` table** (~3 KB per chunk) together with the `model_id` that produced them (`gemini:gemini-embedding-001@768`). If the provider, model or dimensions change, the backfill detects stale vectors and re-embeds them; vectors from different models are never compared.
 - **Background processing:** `POST /ingest` stays fast and returns `pending`; a FastAPI background task embeds the chunks with its own DB connection, then writes all vectors and `status=ready` in one transaction (or `status=failed` + `error`). Already-embedded chunks are skipped, so retries cost nothing extra. The request ID is carried into the background task's logs.
 - **Free-tier caveats:** per-minute/day rate limits (handled with retries, exponential backoff and `Retry-After`; the backfill embeds one item at a time), and content sent on the free tier may be used by Google to improve its products. For private data in production, use a paid tier, another provider, or a local model (config-only change).
-- **At scale:** in-process background tasks are lost if the server restarts (items stay `pending` until the backfill runs); production would use a durable job queue (Celery/RQ/Arq) with a global rate limiter. A model change means re-embedding everything, which should run as a batch job. Storing vectors in SQLite is fine for thousands of chunks; beyond that, use a vector index (see retrieval).
+- **Restart recovery:** in-process background tasks die with the server, so on startup the app re-embeds items still marked `pending` (in the background, without blocking startup; `RECOVER_PENDING_ON_STARTUP`). `failed` items are deliberately not retried automatically, so restarts don't burn free-tier quota; `python -m app.scripts.reindex` retries them.
+- **At scale:** in-process background tasks are a stop-gap; production would use a durable job queue (Celery/RQ/Arq) with a global rate limiter. A model change means re-embedding everything, which should run as a batch job. Storing vectors in SQLite is fine for thousands of chunks; beyond that, use a vector index (see retrieval).
 
 ### Retrieval
 - **Exact brute-force cosine similarity.** All vectors from the current embedding model are loaded and scored against the query vector in one NumPy matrix product. Because vectors are stored at unit length, the dot product *is* the cosine similarity. No index to build or keep in sync, results are exact, and it stays fast (well under 50 ms) up to tens of thousands of chunks, which is plenty for a personal inbox.

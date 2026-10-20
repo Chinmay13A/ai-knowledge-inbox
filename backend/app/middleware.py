@@ -7,8 +7,9 @@ import uuid
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import ASGIApp
 
-from app.errors import internal_error_response
+from app.errors import internal_error_response, payload_too_large_response
 from app.request_context import request_id_var
 
 REQUEST_ID_HEADER = "X-Request-ID"
@@ -37,11 +38,34 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             return response
 
         response.headers[REQUEST_ID_HEADER] = request_id
-        logger.info(
+        logger.log(
+            _level_for(response.status_code),
             "request.completed",
             extra={**log_fields, "status_code": response.status_code, "duration_ms": _elapsed_ms(start)},
         )
         return response
+
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    """Rejects oversized bodies (by Content-Length) before anything reads them into memory."""
+
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        super().__init__(app)
+        self.max_bytes = max_bytes
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > self.max_bytes:
+            return payload_too_large_response(getattr(request.state, "request_id", None), self.max_bytes)
+        return await call_next(request)
+
+
+def _level_for(status_code: int) -> int:
+    if status_code >= 500:
+        return logging.ERROR
+    if status_code >= 400:
+        return logging.WARNING
+    return logging.INFO
 
 
 def _elapsed_ms(start: float) -> float:

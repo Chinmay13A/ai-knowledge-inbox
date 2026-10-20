@@ -4,6 +4,7 @@ import dataclasses
 import logging
 import sqlite3
 
+from app.errors import DuplicateUrlError
 from app.models.chunk import ChunkingConfig
 from app.models.item import Item, SourceType
 from app.repositories import chunks_repo, items_repo
@@ -20,8 +21,12 @@ def ingest_note(conn: sqlite3.Connection, content: str, chunking: ChunkingConfig
 
 
 async def ingest_url(conn: sqlite3.Connection, fetcher: PageFetcher, url: str, chunking: ChunkingConfig) -> Item:
-    """Fetches the page first; nothing is stored if fetching or extraction fails."""
+    """Fetches the page first; nothing is stored if fetching or extraction fails, or if the URL
+    (as submitted, or after redirects) is already saved."""
+    _ensure_not_saved(conn, url)  # before fetching: no network call for a known URL
     page = await fetcher.fetch(url)
+    if page.url != url:
+        _ensure_not_saved(conn, page.url)  # e.g. http -> https, or a short link
     return _store(
         conn,
         chunking,
@@ -43,6 +48,13 @@ def backfill_chunks(conn: sqlite3.Connection, chunking: ChunkingConfig) -> tuple
         with conn:
             total_chunks += _save_chunks(conn, item_id, item.content, chunking)
     return len(item_ids), total_chunks
+
+
+def _ensure_not_saved(conn: sqlite3.Connection, url: str) -> None:
+    existing = items_repo.find_by_url(conn, url)
+    if existing:
+        logger.info("item.duplicate_url", extra={"existing_item_id": existing.id})
+        raise DuplicateUrlError(f'This URL is already saved as "{existing.title}"', item_id=existing.id)
 
 
 def derive_title(text: str, max_len: int = TITLE_MAX_CHARS) -> str:

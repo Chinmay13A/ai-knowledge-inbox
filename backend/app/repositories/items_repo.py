@@ -63,3 +63,19 @@ def item_ids_needing_embedding(conn: sqlite3.Connection, model_id: str) -> list[
         (model_id,),
     ).fetchall()
     return [row["id"] for row in rows]
+
+
+def item_ids_with_status(conn: sqlite3.Connection, statuses: tuple[ItemStatus, ...]) -> list[int]:
+    placeholders = ",".join("?" for _ in statuses)
+    rows = conn.execute(f"SELECT id FROM items WHERE status IN ({placeholders}) ORDER BY id", statuses).fetchall()
+    return [row["id"] for row in rows]
+
+
+def find_by_url(conn: sqlite3.Connection, url: str) -> Item | None:
+    row = conn.execute(f"{_SELECT_ITEMS} WHERE items.url = ? ORDER BY items.id LIMIT 1", (url,)).fetchone()
+    return Item.from_row(row) if row else None
+
+
+def delete_item(conn: sqlite3.Connection, item_id: int) -> bool:
+    """Deletes the item; its chunks go with it (ON DELETE CASCADE). Returns False if it didn't exist."""
+    return conn.execute("DELETE FROM items WHERE id = ?", (item_id,)).rowcount > 0

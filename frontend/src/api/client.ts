@@ -1,4 +1,4 @@
-import type { IngestRequest, Item, ItemList, QueryRequest, QueryResponse } from './types'
+import type { HealthResponse, IngestRequest, Item, ItemList, QueryRequest, QueryResponse } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
@@ -52,10 +52,6 @@ export function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
-export interface HealthResponse {
-  status: string
-}
-
 export function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
   return request<HealthResponse>('/health', { signal })
 }
@@ -67,6 +63,11 @@ export function getItems(page: { limit: number; offset: number }, signal?: Abort
 
 export function ingest(body: IngestRequest): Promise<Item> {
   return request<Item>('/ingest', { method: 'POST', body: JSON.stringify(body) })
+}
+
+/** Resolves once the item is gone (the API answers 204 with no body). */
+export async function deleteItem(id: number): Promise<void> {
+  await request<null>(`/items/${id}`, { method: 'DELETE' })
 }
 
 /** A user-facing message for any error thrown by the API layer. */

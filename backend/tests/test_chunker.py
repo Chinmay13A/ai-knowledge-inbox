@@ -11,8 +11,7 @@ def paragraph(sentences: int, seed: int = 0) -> str:
     rng = random.Random(seed)
     words = ["vector", "embedding", "chunk", "query", "context", "answer", "source", "model", "index"]
     return " ".join(
-        " ".join(rng.choice(words) for _ in range(rng.randint(6, 18))).capitalize() + "."
-        for _ in range(sentences)
+        " ".join(rng.choice(words) for _ in range(rng.randint(6, 18))).capitalize() + "." for _ in range(sentences)
     )
 
 
@@ -103,7 +102,7 @@ class TestOverlap:
         chunks = chunk_text(text, size=300, overlap=60)
 
         assert len(chunks) > 2
-        for previous, current in zip(chunks, chunks[1:]):
+        for previous, current in zip(chunks, chunks[1:], strict=False):  # consecutive pairs
             first_line_words = current.text.split()[:3]
             assert " ".join(first_line_words) in previous.text[-80:]
 

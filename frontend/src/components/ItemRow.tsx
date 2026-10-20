@@ -2,7 +2,17 @@ import type { Item } from '../api/types'
 import { formatRelativeTime, formatTimestamp } from '../lib/format'
 import { StatusBadge } from './StatusBadge'
 
-export function ItemRow({ item }: { item: Item }) {
+interface ItemRowProps {
+  item: Item
+  deleting?: boolean
+  onDelete?: (id: number) => void
+}
+
+export function ItemRow({ item, deleting = false, onDelete }: ItemRowProps) {
+  const confirmDelete = () => {
+    if (window.confirm(`Delete "${item.title}"? This can't be undone.`)) onDelete?.(item.id)
+  }
+
   return (
     <li className="space-y-1.5 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
@@ -30,13 +40,26 @@ export function ItemRow({ item }: { item: Item }) {
 
       {item.status === 'failed' && item.error && <p className="text-xs text-red-700">{item.error}</p>}
 
-      <p className="text-xs text-gray-500">
-        <time dateTime={item.created_at} title={formatTimestamp(item.created_at)}>
-          {formatRelativeTime(item.created_at)}
-        </time>
-        {' · '}
-        {item.chunk_count} {item.chunk_count === 1 ? 'chunk' : 'chunks'}
-      </p>
+      <div className="flex items-center justify-between gap-3 text-xs text-gray-500">
+        <p>
+          <time dateTime={item.created_at} title={formatTimestamp(item.created_at)}>
+            {formatRelativeTime(item.created_at)}
+          </time>
+          {' · '}
+          {item.chunk_count} {item.chunk_count === 1 ? 'chunk' : 'chunks'}
+        </p>
+        {onDelete && (
+          <button
+            type="button"
+            onClick={confirmDelete}
+            disabled={deleting}
+            aria-label={`Delete ${item.title}`}
+            className="rounded px-1.5 py-0.5 text-gray-500 hover:bg-red-50 hover:text-red-700 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+          >
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+        )}
+      </div>
     </li>
   )
 }

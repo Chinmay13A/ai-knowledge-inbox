@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from app.ai.embeddings.base import Embedder
 from app.db import connect
 from app.errors import AppError
+from app.models.item import ItemStatus
 from app.repositories import chunks_repo, items_repo
 
 GENERIC_FAILURE = "Embedding failed due to an unexpected error"
@@ -40,7 +41,7 @@ async def embed_item(db_path: str, embedder: Embedder, item_id: int) -> Embeddin
             return _mark_failed(conn, item_id, GENERIC_FAILURE, log=False)
 
         with conn:  # vectors and the status change land together
-            chunks_repo.set_embeddings(conn, list(zip((c.id for c in chunks), vectors)), embedder.model_id)
+            chunks_repo.set_embeddings(conn, list(zip((c.id for c in chunks), vectors, strict=True)), embedder.model_id)
             items_repo.set_status(conn, item_id, "ready")
         logger.info(
             "embedding.completed",
@@ -56,12 +57,18 @@ async def embed_item(db_path: str, embedder: Embedder, item_id: int) -> Embeddin
         conn.close()
 
 
-async def embed_pending(db_path: str, embedder: Embedder) -> tuple[int, int, int]:
+async def embed_pending(
+    db_path: str, embedder: Embedder, *, only_statuses: tuple[ItemStatus, ...] | None = None
+) -> tuple[int, int, int]:
     """Backfill: embeds items that aren't ready for the current model, one at a time
-    (gentle on provider rate limits). Returns (items processed, chunks embedded, items failed)."""
+    (gentle on provider rate limits). `only_statuses` narrows it, e.g. to ("pending",) on startup.
+    Returns (items processed, chunks embedded, items failed)."""
     conn = connect(db_path)
     try:
-        item_ids = items_repo.item_ids_needing_embedding(conn, embedder.model_id)
+        if only_statuses:
+            item_ids = items_repo.item_ids_with_status(conn, only_statuses)
+        else:
+            item_ids = items_repo.item_ids_needing_embedding(conn, embedder.model_id)
     finally:
         conn.close()
 

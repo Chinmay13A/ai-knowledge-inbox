@@ -42,7 +42,9 @@ def test_request_shape_and_key_in_header() -> None:
     generate(make(fake, temperature=0.2, max_output_tokens=512))
 
     request = fake.requests[0]
-    assert str(request.url) == "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    assert (
+        str(request.url) == "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    )
     assert request.headers["x-goog-api-key"] == "test-key"
     assert "test-key" not in str(request.url)
     assert json.loads(request.content) == {

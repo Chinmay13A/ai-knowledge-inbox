@@ -6,6 +6,8 @@ from pathlib import Path
 
 from fastapi import Request
 
+BUSY_TIMEOUT_S = 5.0
+
 # Additive only: tables/indexes are created if missing, never altered or dropped.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS items (
@@ -19,6 +21,7 @@ CREATE TABLE IF NOT EXISTS items (
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_items_url ON items(url);
 
 CREATE TABLE IF NOT EXISTS chunks (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,7 +39,9 @@ CREATE INDEX IF NOT EXISTS idx_chunks_item_id ON chunks(item_id);
 def connect(db_path: str) -> sqlite3.Connection:
     # FastAPI may open the connection in a worker thread and use it from an async route.
     # Each connection still belongs to exactly one request, so sharing across threads is safe.
-    conn = sqlite3.connect(db_path, check_same_thread=False)
+    # timeout: wait up to 5 s for another writer (e.g. a background embedding task) instead of
+    # failing immediately with "database is locked". SQLite still allows only one writer at a time.
+    conn = sqlite3.connect(db_path, timeout=BUSY_TIMEOUT_S, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn

@@ -1,11 +1,12 @@
 import sqlite3
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from app.db import get_db
 from app.errors import ItemNotFoundError
 from app.models.schemas import ChunkOut, ItemChunksResponse, ItemListResponse, ItemOut
 from app.repositories import chunks_repo, items_repo
+from app.services import items_service
 
 router = APIRouter(tags=["items"])
 
@@ -38,3 +39,14 @@ def list_item_chunks(item_id: int, conn: sqlite3.Connection = Depends(get_db)) -
         item_id=item_id,
         chunks=[ChunkOut(index=c.chunk_index, text=c.text, chars=len(c.text)) for c in chunks],
     )
+
+
+@router.delete(
+    "/items/{item_id}",
+    status_code=204,
+    response_class=Response,
+    summary="Delete an item and its chunks",
+)
+def delete_item(item_id: int, conn: sqlite3.Connection = Depends(get_db)) -> Response:
+    items_service.delete_item(conn, item_id)
+    return Response(status_code=204)

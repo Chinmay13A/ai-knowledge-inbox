@@ -22,4 +22,4 @@ class Item:
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Item":
-        return cls(**{key: row[key] for key in row.keys()})
+        return cls(**{key: row[key] for key in row.keys()})  # noqa: SIM118 - iterating a Row yields values

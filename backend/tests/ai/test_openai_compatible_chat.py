@@ -71,7 +71,9 @@ def test_content_filter_is_declined() -> None:
         generate(make(FakeServer(chat_reply("", finish="content_filter"))))
 
 
-@pytest.mark.parametrize(("reply", "message"), [({"choices": []}, "Unexpected response"), (chat_reply(None), "empty answer")])
+@pytest.mark.parametrize(
+    ("reply", "message"), [({"choices": []}, "Unexpected response"), (chat_reply(None), "empty answer")]
+)
 def test_bad_replies(reply: dict, message: str) -> None:
     with pytest.raises(LLMError, match=message):
         generate(make(FakeServer(reply)))

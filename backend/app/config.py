@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     # Kept as a comma-separated string so it can be set as a plain env var.
     cors_origins: str = "http://localhost:5173"
     db_path: str = "data/inbox.db"
+    # Largest accepted request body; a 50,000-character note is far below this.
+    max_request_bytes: int = 1_000_000
+    # Re-embed items left "pending" by a restart (background tasks don't survive one).
+    recover_pending_on_startup: bool = True
 
     # URL ingestion
     fetch_timeout_s: float = 10.0

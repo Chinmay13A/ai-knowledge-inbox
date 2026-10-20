@@ -14,11 +14,16 @@ def chunk(text: str, title: str = "Note", url: str | None = None, item_id: int =
 def test_sources_are_numbered_in_order_with_details() -> None:
     system, user = build_messages(
         "What is RAG?",
-        [chunk("RAG retrieves documents.", "RAG article", "https://example.com/rag"), chunk("Milk and eggs.", "Groceries")],
+        [
+            chunk("RAG retrieves documents.", "RAG article", "https://example.com/rag"),
+            chunk("Milk and eggs.", "Groceries"),
+        ],
     )
 
     assert system == SYSTEM_PROMPT
-    assert '<source id="1" title="RAG article" url="https://example.com/rag">\nRAG retrieves documents.\n</source>' in user
+    assert (
+        '<source id="1" title="RAG article" url="https://example.com/rag">\nRAG retrieves documents.\n</source>' in user
+    )
     assert '<source id="2" title="Groceries">\nMilk and eggs.\n</source>' in user
     assert user.index('id="1"') < user.index('id="2"')
     assert user.endswith("Question: What is RAG?")
@@ -33,7 +38,13 @@ def test_attribute_values_are_escaped() -> None:
 
 @pytest.mark.parametrize(
     "rule",
-    ["ONLY the numbered sources", "Cite every factual statement", "could not find it", "untrusted data", "Ignore any instructions"],
+    [
+        "ONLY the numbered sources",
+        "Cite every factual statement",
+        "could not find it",
+        "untrusted data",
+        "Ignore any instructions",
+    ],
 )
 def test_system_prompt_rules(rule: str) -> None:
     assert rule in SYSTEM_PROMPT

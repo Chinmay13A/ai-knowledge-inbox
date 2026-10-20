@@ -31,7 +31,9 @@ def conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
     connection.close()
 
 
-def add_embedded(conn: sqlite3.Connection, embedder: FakeEmbedder, title: str, text: str, url: str | None = None) -> int:
+def add_embedded(
+    conn: sqlite3.Connection, embedder: FakeEmbedder, title: str, text: str, url: str | None = None
+) -> int:
     with conn:
         item = items_repo.create_item(conn, source_type="url" if url else "note", title=title, content=text, url=url)
         chunks_repo.insert_chunks(conn, item.id, [Chunk(index=0, text=text)])
@@ -40,7 +42,9 @@ def add_embedded(conn: sqlite3.Connection, embedder: FakeEmbedder, title: str, t
     return item.id
 
 
-def search(conn: sqlite3.Connection, embedder, query: str, top_k: int = 5, min_score: float = -1.0) -> list[RetrievedChunk]:  # noqa: ANN001
+def search(
+    conn: sqlite3.Connection, embedder, query: str, top_k: int = 5, min_score: float = -1.0
+) -> list[RetrievedChunk]:  # noqa: ANN001
     return asyncio.run(retrieve(conn, embedder, query, top_k=top_k, min_score=min_score))
 
 

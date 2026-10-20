@@ -4,10 +4,30 @@ import { ItemRow } from './ItemRow'
 
 type ItemListProps = Pick<
   ItemsState,
-  'items' | 'total' | 'loading' | 'loadingMore' | 'error' | 'hasMore' | 'refresh' | 'loadMore'
+  | 'items'
+  | 'total'
+  | 'loading'
+  | 'loadingMore'
+  | 'error'
+  | 'hasMore'
+  | 'deletingIds'
+  | 'refresh'
+  | 'loadMore'
+  | 'removeItem'
 >
 
-export function ItemList({ items, total, loading, loadingMore, error, hasMore, refresh, loadMore }: ItemListProps) {
+export function ItemList({
+  items,
+  total,
+  loading,
+  loadingMore,
+  error,
+  hasMore,
+  deletingIds,
+  refresh,
+  loadMore,
+  removeItem,
+}: ItemListProps) {
   return (
     <section aria-labelledby="saved-items-heading" className="rounded-lg border border-gray-200 bg-white">
       <h2 id="saved-items-heading" className="border-b border-gray-200 px-4 py-3 font-medium">
@@ -33,7 +53,7 @@ export function ItemList({ items, total, loading, loadingMore, error, hasMore, r
       ) : (
         <ul className="divide-y divide-gray-100">
           {items.map((item) => (
-            <ItemRow key={item.id} item={item} />
+            <ItemRow key={item.id} item={item} deleting={deletingIds.has(item.id)} onDelete={removeItem} />
           ))}
         </ul>
       )}

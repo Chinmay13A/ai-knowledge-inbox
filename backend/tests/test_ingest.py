@@ -145,7 +145,9 @@ class TestChunking:
         assert client.get("/items").json()["items"][0]["chunk_count"] == 1
 
     def test_long_page_is_split_into_ordered_chunks(self, client: TestClient, fetcher: StubFetcher) -> None:
-        long_text = "\n".join(f"Paragraph {i}. " + "Retrieval finds relevant context for the model. " * 4 for i in range(25))
+        long_text = "\n".join(
+            f"Paragraph {i}. " + "Retrieval finds relevant context for the model. " * 4 for i in range(25)
+        )
         fetcher.result = FetchedPage(url="https://example.com/long", title="Long article", text=long_text)
 
         item = client.post("/ingest", json={"type": "url", "url": "https://example.com/long"}).json()
@@ -175,3 +177,33 @@ class TestChunking:
             response = client.post("/ingest", json={"type": "note", "content": "Will be rolled back"})
             assert response.status_code == 500
             assert client.get("/items").json()["total"] == 0
+
+
+class TestDuplicateUrls:
+    def test_same_url_twice_is_409_without_fetching_again(self, client: TestClient, fetcher: StubFetcher) -> None:
+        fetcher.result = FetchedPage(url="https://example.com/article", title="Example article", text="Body")
+        first = client.post("/ingest", json={"type": "url", "url": "https://example.com/article"}).json()
+
+        response = client.post("/ingest", json={"type": "url", "url": "https://example.com/article"})
+
+        assert response.status_code == 409
+        error = response.json()["error"]
+        assert error["code"] == "duplicate_url"
+        assert error["message"] == 'This URL is already saved as "Example article"'
+        assert error["item_id"] == first["id"]
+        assert fetcher.requested == ["https://example.com/article"]  # no second fetch
+
+    def test_redirect_to_a_saved_url_is_409_and_stores_nothing(self, client: TestClient, fetcher: StubFetcher) -> None:
+        fetcher.result = FetchedPage(url="https://example.com/final", title="Final", text="Body")
+        client.post("/ingest", json={"type": "url", "url": "https://example.com/final"})
+
+        response = client.post("/ingest", json={"type": "url", "url": "https://short.link/abc"})
+
+        assert response.status_code == 409
+        assert client.get("/items").json()["total"] == 1
+
+    def test_identical_notes_are_allowed(self, client: TestClient) -> None:
+        add_note(client, "Same text")
+        add_note(client, "Same text")
+
+        assert client.get("/items").json()["total"] == 2

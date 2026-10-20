@@ -40,7 +40,7 @@ def test_batches_and_preserves_order() -> None:
 
     assert [len(body["requests"]) for body in fake.bodies()] == [50, 50, 20]
     assert len(vectors) == 120
-    for length, vector in zip((1, 60, 120), (vectors[0], vectors[59], vectors[119])):
+    for length, vector in zip((1, 60, 120), (vectors[0], vectors[59], vectors[119]), strict=True):
         expected = np.array([length, 1.0, 1.0]) / np.linalg.norm([length, 1.0, 1.0])
         assert np.allclose(vector, expected)
 
@@ -95,7 +95,13 @@ def test_malformed_response(body: dict) -> None:
 
 
 def test_invalid_key_message() -> None:
-    error = {"error": {"code": 400, "message": "API key not valid. Please pass a valid API key.", "status": "INVALID_ARGUMENT"}}
+    error = {
+        "error": {
+            "code": 400,
+            "message": "API key not valid. Please pass a valid API key.",
+            "status": "INVALID_ARGUMENT",
+        }
+    }
 
     with pytest.raises(EmbeddingError, match="Gemini rejected the API key"):
         asyncio.run(make(lambda request: httpx.Response(400, json=error)).embed_documents(["a"]))

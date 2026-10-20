@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { jsonResponse, mockFetch } from '../test/fixtures'
-import { ApiError, getItems, ingest, request } from './client'
+import { ApiError, deleteItem, getItems, ingest, request } from './client'
 
 describe('request', () => {
   it('returns parsed JSON on success', async () => {
@@ -47,5 +47,17 @@ describe('endpoints', () => {
     const init = fetchMock.mock.calls[0][1] as RequestInit
     expect(init.method).toBe('POST')
     expect(JSON.parse(String(init.body))).toEqual({ type: 'url', url: 'https://example.com' })
+  })
+})
+
+describe('deleteItem', () => {
+  it('sends DELETE and accepts an empty 204 response', async () => {
+    const fetchMock = mockFetch(() => new Response(null, { status: 204 }))
+
+    await expect(deleteItem(7)).resolves.toBeUndefined()
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(new URL(String(url)).pathname).toBe('/items/7')
+    expect((init as RequestInit).method).toBe('DELETE')
   })
 })

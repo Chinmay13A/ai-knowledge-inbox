@@ -1,7 +1,12 @@
+import asyncio
+
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.conftest import add_note
+from app.db import connect
+from app.services.embedding_service import embed_item
+from tests.conftest import FakeEmbedder, add_note
 
 
 def test_empty_inbox(client: TestClient) -> None:
@@ -64,3 +69,41 @@ class TestItemChunks:
         response = client.get("/items/abc/chunks")
 
         assert response.status_code == 422
+
+
+class TestDeleteItem:
+    def test_delete_removes_item_and_chunks(self, client: TestClient) -> None:
+        keep = add_note(client, "keep me")
+        gone = add_note(client, "delete me")
+
+        response = client.delete(f"/items/{gone['id']}")
+
+        assert response.status_code == 204
+        assert response.content == b""
+        assert [item["id"] for item in client.get("/items").json()["items"]] == [keep["id"]]
+        assert client.get(f"/items/{gone['id']}/chunks").status_code == 404
+
+    def test_deleting_twice_is_404(self, client: TestClient) -> None:
+        item = add_note(client, "once")
+        client.delete(f"/items/{item['id']}")
+
+        response = client.delete(f"/items/{item['id']}")
+
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "item_not_found"
+
+    def test_non_numeric_id_is_422(self, client: TestClient) -> None:
+        assert client.delete("/items/abc").status_code == 422
+
+    def test_delete_during_embedding_does_not_resurrect_rows(self, client: TestClient, app: FastAPI) -> None:
+        item = add_note(client, "racing note")
+        client.delete(f"/items/{item['id']}")
+
+        # The background task for this item finishing late must be harmless.
+        outcome = asyncio.run(embed_item(app.state.settings.db_path, FakeEmbedder(model_id="fake:late@64"), item["id"]))
+
+        assert outcome.chunks_embedded == 0
+        conn = connect(app.state.settings.db_path)
+        assert conn.execute("SELECT COUNT(*) FROM chunks WHERE item_id = ?", (item["id"],)).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM items WHERE id = ?", (item["id"],)).fetchone()[0] == 0
+        conn.close()

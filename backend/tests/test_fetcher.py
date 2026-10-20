@@ -157,7 +157,9 @@ class TestSsrfGuard:
     def test_redirect_to_public_host_returns_final_url(self) -> None:
         handler = site(
             {
-                "https://example.com/article": httpx.Response(301, headers={"Location": "https://www.example.org/post"}),
+                "https://example.com/article": httpx.Response(
+                    301, headers={"Location": "https://www.example.org/post"}
+                ),
                 "/post": html(ARTICLE_HTML),
             }
         )

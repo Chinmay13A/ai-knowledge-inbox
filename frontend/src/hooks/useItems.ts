@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { errorMessage, getItems, isAbortError } from '../api/client'
+import { ApiError, deleteItem, errorMessage, getItems, isAbortError } from '../api/client'
 import type { Item } from '../api/types'
 
 export const PAGE_SIZE = 50
@@ -14,9 +14,11 @@ export interface ItemsState {
   loadingMore: boolean
   error: string | null
   hasMore: boolean
+  deletingIds: ReadonlySet<number>
   refresh: () => void
   loadMore: () => void
   addItem: (item: Item) => void
+  removeItem: (id: number) => Promise<void>
 }
 
 /**
@@ -29,6 +31,7 @@ export function useItems(): ItemsState {
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [deletingIds, setDeletingIds] = useState<ReadonlySet<number>>(() => new Set())
 
   const inFlight = useRef<AbortController | null>(null)
   const itemsRef = useRef<Item[]>(items) // latest items for callbacks, without re-creating them
@@ -78,6 +81,32 @@ export function useItems(): ItemsState {
     setTotal((previous) => previous + 1)
   }, [])
 
+  const dropItem = useCallback((id: number) => {
+    setItems((previous) => previous.filter((item) => item.id !== id))
+    setTotal((previous) => Math.max(0, previous - 1))
+  }, [])
+
+  const removeItem = useCallback(
+    async (id: number) => {
+      setDeletingIds((previous) => new Set(previous).add(id))
+      try {
+        await deleteItem(id)
+        dropItem(id)
+      } catch (caught) {
+        // Already gone (404) is the state the user asked for; anything else is a real error.
+        if (caught instanceof ApiError && caught.status === 404) dropItem(id)
+        else setError(errorMessage(caught))
+      } finally {
+        setDeletingIds((previous) => {
+          const next = new Set(previous)
+          next.delete(id)
+          return next
+        })
+      }
+    },
+    [dropItem],
+  )
+
   useEffect(() => {
     void reload()
     return () => inFlight.current?.abort()
@@ -112,9 +141,11 @@ export function useItems(): ItemsState {
     loadingMore,
     error,
     hasMore: items.length < total,
+    deletingIds,
     refresh,
     loadMore,
     addItem,
+    removeItem,
   }
 }
 

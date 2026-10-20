@@ -115,3 +115,56 @@ describe('useItems', () => {
     expect(result.current.error).toBeNull()
   })
 })
+
+describe('useItems.removeItem', () => {
+  it('deletes on the server, then drops the item and decrements the total', async () => {
+    vi.useFakeTimers()
+    const fetchMock = mockFetch((_url, init) =>
+      init.method === 'DELETE'
+        ? new Response(null, { status: 204 })
+        : jsonResponse(itemList([makeItem({ id: 2 }), makeItem({ id: 1 })])),
+    )
+    const { result } = renderHook(() => useItems())
+    await advance()
+
+    await act(() => result.current.removeItem(2))
+
+    const deleteCall = fetchMock.mock.calls.find(([, init]) => (init as RequestInit).method === 'DELETE')
+    expect(new URL(String(deleteCall?.[0])).pathname).toBe('/items/2')
+    expect(result.current.items.map((item) => item.id)).toEqual([1])
+    expect(result.current.total).toBe(1)
+    expect(result.current.deletingIds.size).toBe(0)
+  })
+
+  it('treats an already-deleted item (404) as gone', async () => {
+    vi.useFakeTimers()
+    mockFetch((_url, init) =>
+      init.method === 'DELETE'
+        ? jsonResponse({ error: { code: 'item_not_found', message: 'Item 2 not found' } }, 404)
+        : jsonResponse(itemList([makeItem({ id: 2 })])),
+    )
+    const { result } = renderHook(() => useItems())
+    await advance()
+
+    await act(() => result.current.removeItem(2))
+
+    expect(result.current.items).toEqual([])
+    expect(result.current.error).toBeNull()
+  })
+
+  it('keeps the item and reports other errors', async () => {
+    vi.useFakeTimers()
+    mockFetch((_url, init) =>
+      init.method === 'DELETE'
+        ? jsonResponse({ error: { code: 'internal_error', message: 'An unexpected error occurred' } }, 500)
+        : jsonResponse(itemList([makeItem({ id: 2 })])),
+    )
+    const { result } = renderHook(() => useItems())
+    await advance()
+
+    await act(() => result.current.removeItem(2))
+
+    expect(result.current.items.map((item) => item.id)).toEqual([2])
+    expect(result.current.error).toBe('An unexpected error occurred')
+  })
+})

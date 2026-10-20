@@ -21,7 +21,9 @@ def item(client: TestClient, item_id: int) -> dict:
     return next(i for i in client.get("/items").json()["items"] if i["id"] == item_id)
 
 
-def test_ingest_returns_pending_then_item_becomes_ready(client: TestClient, app: FastAPI, embedder: FakeEmbedder) -> None:
+def test_ingest_returns_pending_then_item_becomes_ready(
+    client: TestClient, app: FastAPI, embedder: FakeEmbedder
+) -> None:
     created = add_note(client, "Vector search finds chunks by meaning.\nIt powers RAG.")
 
     assert created["status"] == "pending"  # the response is sent before embedding runs
@@ -103,7 +105,11 @@ def test_backfill_retries_failed_items(client: TestClient, app: FastAPI, embedde
 def test_similar_texts_get_similar_vectors(embedder: FakeEmbedder) -> None:
     rag, rag_question, groceries = (
         embedder.vector(text)
-        for text in ("retrieval augmented generation uses retrieval", "what is retrieval augmented generation", "buy milk and eggs")
+        for text in (
+            "retrieval augmented generation uses retrieval",
+            "what is retrieval augmented generation",
+            "buy milk and eggs",
+        )
     )
 
     assert float(np.dot(rag, rag_question)) > float(np.dot(groceries, rag_question))

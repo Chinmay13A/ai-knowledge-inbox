@@ -7,3 +7,6 @@ numpy==2.2.6
 
 # Testing
 pytest==8.3.5
+
+# Linting
+ruff==0.12.4

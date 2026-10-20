@@ -39,7 +39,17 @@ def test_answers_with_numbered_cited_sources(client: TestClient, inbox: dict, ch
     assert first["id"] == 1 and first["cited"] is True
     assert first["item_id"] == inbox["rag"]
     assert first["snippet"] == RAG_NOTE
-    assert set(first) == {"id", "cited", "item_id", "item_title", "item_url", "source_type", "chunk_index", "snippet", "score"}
+    assert set(first) == {
+        "id",
+        "cited",
+        "item_id",
+        "item_title",
+        "item_url",
+        "source_type",
+        "chunk_index",
+        "snippet",
+        "score",
+    }
     assert [s["id"] for s in body["sources"]] == list(range(1, len(body["sources"]) + 1))
 
 
@@ -83,7 +93,9 @@ def test_nothing_relevant_skips_the_llm(client: TestClient, chat_model: FakeChat
     assert chat_model.prompts == []
 
 
-def test_irrelevant_question_with_content_skips_the_llm(client: TestClient, inbox: dict, chat_model: FakeChatModel) -> None:
+def test_irrelevant_question_with_content_skips_the_llm(
+    client: TestClient, inbox: dict, chat_model: FakeChatModel
+) -> None:
     body = ask(client, "capital of Peru").json()
 
     assert body["answer"] == NO_SOURCES_ANSWER
@@ -134,7 +146,13 @@ def test_missing_configuration_is_503_before_any_provider_call(
 
 @pytest.mark.parametrize(
     "payload",
-    [{"question": "  "}, {"question": "x" * 1_001}, {"question": "ok", "top_k": 0}, {"question": "ok", "top_k": 21}, {}],
+    [
+        {"question": "  "},
+        {"question": "x" * 1_001},
+        {"question": "ok", "top_k": 0},
+        {"question": "ok", "top_k": 21},
+        {},
+    ],
 )
 def test_invalid_requests(client: TestClient, payload: dict) -> None:
     response = client.post("/query", json=payload)

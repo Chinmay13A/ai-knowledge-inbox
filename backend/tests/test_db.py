@@ -1,7 +1,9 @@
 import sqlite3
+import threading
+import time
 from pathlib import Path
 
-from app.db import init_db
+from app.db import connect, init_db
 
 # The chunks table as created by Step 3, before embedding_model existed.
 STEP3_SCHEMA = """
@@ -47,3 +49,23 @@ def test_fresh_database_has_full_schema(tmp_path: Path) -> None:
     init_db(db_path)
 
     assert {"embedding", "embedding_model"} <= columns(db_path, "chunks")
+
+
+def test_concurrent_writer_waits_instead_of_failing(tmp_path: Path) -> None:
+    db_path = str(tmp_path / "busy.db")
+    init_db(db_path)
+    holder = connect(db_path)
+    holder.execute("BEGIN IMMEDIATE")  # take the write lock
+    holder.execute("INSERT INTO items (source_type, title, content, created_at) VALUES ('note', 'a', 'a', 'now')")
+    threading.Timer(0.5, holder.commit).start()  # release it shortly
+
+    writer = connect(db_path)
+    start = time.monotonic()
+    with writer:
+        writer.execute("INSERT INTO items (source_type, title, content, created_at) VALUES ('note', 'b', 'b', 'now')")
+    waited = time.monotonic() - start
+
+    assert 0.3 < waited < 5  # waited for the lock rather than raising "database is locked"
+    assert writer.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 2
+    writer.close()
+    holder.close()

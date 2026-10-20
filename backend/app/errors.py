@@ -20,14 +20,20 @@ class AppError(Exception):
     status_code = 500
     code = "internal_error"
 
-    def __init__(self, message: str) -> None:
+    def __init__(self, message: str, **extra: Any) -> None:
         super().__init__(message)
         self.message = message
+        self.extra = extra  # additional fields merged into the error body (e.g. item_id)
 
 
 class ItemNotFoundError(AppError):
     status_code = 404
     code = "item_not_found"
+
+
+class DuplicateUrlError(AppError):
+    status_code = 409
+    code = "duplicate_url"
 
 
 class UrlNotAllowedError(AppError):
@@ -88,11 +94,16 @@ def error_response(
     code: str,
     message: str,
     details: list[dict[str, Any]] | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> JSONResponse:
-    error: dict[str, Any] = {"code": code, "message": message, "request_id": request_id}
+    error: dict[str, Any] = {"code": code, "message": message, **(extra or {}), "request_id": request_id}
     if details:
         error["details"] = details
     return JSONResponse(status_code=status_code, content={"error": error})
+
+
+def payload_too_large_response(request_id: str | None, limit_bytes: int) -> JSONResponse:
+    return error_response(request_id, 413, "payload_too_large", f"Request body is larger than {limit_bytes:,} bytes")
 
 
 def internal_error_response(request_id: str | None) -> JSONResponse:
@@ -114,7 +125,7 @@ def _format_validation_error(error: dict[str, Any]) -> dict[str, str]:
 
 
 async def _handle_app_error(request: Request, exc: AppError) -> JSONResponse:
-    return error_response(_request_id(request), exc.status_code, exc.code, exc.message)
+    return error_response(_request_id(request), exc.status_code, exc.code, exc.message, extra=exc.extra)
 
 
 async def _handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:

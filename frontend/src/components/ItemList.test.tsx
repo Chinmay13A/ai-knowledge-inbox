@@ -13,8 +13,10 @@ function renderList(items: Item[], overrides: Partial<Parameters<typeof ItemList
     loadingMore: false,
     error: null,
     hasMore: false,
+    deletingIds: new Set<number>(),
     refresh: vi.fn(),
     loadMore: vi.fn(),
+    removeItem: vi.fn(async () => {}),
     ...overrides,
   }
   render(<ItemList {...props} />)
@@ -60,5 +62,35 @@ describe('ItemList', () => {
 
     expect(props.refresh).toHaveBeenCalledTimes(1)
     expect(props.loadMore).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('deleting items', () => {
+  it('asks for confirmation, then deletes', async () => {
+    const user = userEvent.setup()
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const props = renderList([makeItem({ id: 4, title: 'Old note' })])
+
+    await user.click(screen.getByRole('button', { name: 'Delete Old note' }))
+
+    expect(confirm).toHaveBeenCalledWith(`Delete "Old note"? This can't be undone.`)
+    expect(props.removeItem).toHaveBeenCalledWith(4)
+  })
+
+  it('does nothing when the confirmation is cancelled', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const props = renderList([makeItem({ id: 4, title: 'Old note' })])
+
+    await user.click(screen.getByRole('button', { name: 'Delete Old note' }))
+
+    expect(props.removeItem).not.toHaveBeenCalled()
+  })
+
+  it('disables the button while deleting', () => {
+    renderList([makeItem({ id: 4, title: 'Old note' })], { deletingIds: new Set([4]) })
+
+    expect(screen.getByRole('button', { name: 'Delete Old note' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Delete Old note' })).toHaveTextContent('Deleting…')
   })
 })

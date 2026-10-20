@@ -70,7 +70,13 @@ async def post_json(
         wait_s = retry_after if retry_after is not None else BACKOFF_BASE_S * 2**attempt
         logger.warning(
             "ai.retry",
-            extra={"provider": provider, "operation": operation, "attempt": attempt + 1, "wait_s": wait_s, "reason": failure},
+            extra={
+                "provider": provider,
+                "operation": operation,
+                "attempt": attempt + 1,
+                "wait_s": wait_s,
+                "reason": failure,
+            },
         )
         await sleep(wait_s)
 

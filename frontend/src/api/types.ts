@@ -54,3 +54,12 @@ export interface QueryResponse {
 
 // Keep in sync with MAX_QUERY_CHARS in backend/app/models/schemas.py.
 export const MAX_QUESTION_CHARS = 1_000
+
+export type Readiness = 'ready' | 'not_configured'
+
+export interface HealthResponse {
+  status: 'ok' | 'degraded'
+  database: 'ok' | 'error'
+  embeddings: Readiness
+  llm: Readiness
+}

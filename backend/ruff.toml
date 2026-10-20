@@ -1,0 +1,15 @@
+target-version = "py310"
+line-length = 120
+extend-exclude = ["venv", "data"]
+
+[lint]
+# pycodestyle, pyflakes, import order, bugbear, pyupgrade, simplifications
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[lint.flake8-bugbear]
+# FastAPI's dependency injection idiom: `conn = Depends(get_db)` in signatures.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
+
+[lint.per-file-ignores]
+# The LLM system prompt is a verbatim string; wrapping its lines would change the prompt.
+"app/services/prompting.py" = ["E501"]
