@@ -5,8 +5,8 @@ from pathlib import Path
 
 from app.db import connect, init_db
 
-# The chunks table as created by Step 3, before embedding_model existed.
-STEP3_SCHEMA = """
+# The chunks table as created by an earlier version, before embedding_model existed.
+OLDER_SCHEMA = """
 CREATE TABLE items (
     id INTEGER PRIMARY KEY AUTOINCREMENT, source_type TEXT NOT NULL, title TEXT NOT NULL, url TEXT,
     content TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', error TEXT, created_at TEXT NOT NULL
@@ -29,9 +29,9 @@ def columns(db_path: str, table: str) -> set[str]:
 
 
 def test_init_db_upgrades_older_database_without_losing_data(tmp_path: Path) -> None:
-    db_path = str(tmp_path / "step3.db")
+    db_path = str(tmp_path / "older-version.db")
     conn = sqlite3.connect(db_path)
-    conn.executescript(STEP3_SCHEMA)
+    conn.executescript(OLDER_SCHEMA)
     conn.close()
 
     init_db(db_path)
