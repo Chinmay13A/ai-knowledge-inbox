@@ -48,3 +48,17 @@ def set_embeddings(conn: sqlite3.Connection, vectors: list[tuple[int, np.ndarray
         "UPDATE chunks SET embedding = ?, embedding_model = ? WHERE id = ?",
         [(to_blob(vector), model_id, chunk_id) for chunk_id, vector in vectors],
     )
+
+
+def embedded_chunks(conn: sqlite3.Connection, model_id: str) -> list[sqlite3.Row]:
+    """Every chunk with a vector from `model_id`, joined with its item's metadata (for retrieval)."""
+    return conn.execute(
+        """
+        SELECT chunks.id AS chunk_id, chunks.item_id, chunks.chunk_index, chunks.text, chunks.embedding,
+               items.title AS item_title, items.url AS item_url, items.source_type
+        FROM chunks JOIN items ON items.id = chunks.item_id
+        WHERE chunks.embedding IS NOT NULL AND chunks.embedding_model = ?
+        ORDER BY chunks.id
+        """,
+        (model_id,),
+    ).fetchall()

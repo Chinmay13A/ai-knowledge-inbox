@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     embedding_timeout_s: float = 30.0
     embedding_max_retries: int = 3
 
+    # Retrieval. The min score is a cosine similarity; its useful range depends on the embedding model.
+    retrieval_top_k: int = 5
+    retrieval_min_score: float = 0.5
+
     @model_validator(mode="after")
     def _check_chunking(self) -> "Settings":
         if self.chunk_size_chars < 100:
@@ -54,6 +58,14 @@ class Settings(BaseSettings):
             raise ValueError("EMBEDDING_BASE_URL is required when EMBEDDING_PROVIDER=openai_compatible")
         if self.embedding_batch_size < 1:
             raise ValueError("EMBEDDING_BATCH_SIZE must be at least 1")
+        return self
+
+    @model_validator(mode="after")
+    def _check_retrieval(self) -> "Settings":
+        if not 1 <= self.retrieval_top_k <= 20:
+            raise ValueError("RETRIEVAL_TOP_K must be between 1 and 20")
+        if not -1.0 <= self.retrieval_min_score <= 1.0:
+            raise ValueError("RETRIEVAL_MIN_SCORE must be between -1 and 1")
         return self
 
     @property

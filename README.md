@@ -41,7 +41,7 @@ Without a key the app still runs; new items just end up `failed` with a message 
 - Tests: `pytest`
 - Backfill / retry: `python -m app.scripts.reindex` chunks items that have no chunks and embeds every item that is `pending`, `failed`, or embedded with a different model. Safe to run any time.
 
-Configuration lives in `backend/.env` (see `.env.example`): log level, CORS origins, DB path, URL fetch limits, `RESPECT_ROBOTS_TXT`, chunking (`CHUNK_SIZE_CHARS`, `CHUNK_OVERLAP_CHARS`) and embeddings (`EMBEDDING_*`). Invalid values fail at startup with a clear message.
+Configuration lives in `backend/.env` (see `.env.example`): log level, CORS origins, DB path, URL fetch limits, `RESPECT_ROBOTS_TXT`, chunking (`CHUNK_SIZE_CHARS`, `CHUNK_OVERLAP_CHARS`), embeddings (`EMBEDDING_*`) and retrieval (`RETRIEVAL_TOP_K`, `RETRIEVAL_MIN_SCORE`). Invalid values fail at startup with a clear message.
 
 ### Switching AI providers
 
@@ -154,6 +154,36 @@ curl http://localhost:8000/items/2/chunks
 
 Unknown item → `404 item_not_found`.
 
+### `POST /search` — semantic search over chunks (debugging aid)
+
+Retrieval only, no LLM: shows exactly which chunks `POST /query` will use as context, with their similarity scores.
+
+```bash
+curl -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "What is retrieval-augmented generation?", "top_k": 3}'
+```
+
+```json
+{
+  "query": "What is retrieval-augmented generation?",
+  "results": [
+    {
+      "item_id": 9,
+      "item_title": "Retrieval-augmented generation - Wikipedia",
+      "item_url": "https://en.wikipedia.org/wiki/Retrieval-augmented_generation",
+      "source_type": "url",
+      "chunk_index": 0,
+      "text": "Retrieval-augmented generation (RAG) is a technique that ...",
+      "score": 0.8123
+    }
+  ]
+}
+```
+
+- `query`: non-blank, max 1,000 characters. `top_k`: 1–20 (default `RETRIEVAL_TOP_K` = 5).
+- Only chunks scoring at least `RETRIEVAL_MIN_SCORE` are returned; no relevant chunks → `200` with `"results": []`.
+
 ### Errors
 
 Every error uses the same shape:
@@ -180,7 +210,9 @@ Every error uses the same shape:
 | 422 | `unsupported_content` | Not an HTML or plain-text page (e.g. PDF), or larger than 5 MB |
 | 422 | `empty_content` | No readable text found on the page (e.g. JavaScript-only pages) |
 | 500 | `internal_error` | Unexpected server error (details are only in the logs) |
+| 502 | `embedding_failed` | The embedding provider failed (rejected key, rate limit, outage) |
 | 502 | `url_fetch_failed` | Site unreachable, too many redirects, or it responded with an error status |
+| 503 | `ai_not_configured` | No API key configured for the AI provider (`EMBEDDING_API_KEY`) |
 | 504 | `url_fetch_timeout` | Site didn't respond within 10 s |
 
 ## Observability
@@ -194,7 +226,7 @@ Every error uses the same shape:
 | Layer | Folder | Responsibility |
 |---|---|---|
 | API | `app/api/` | HTTP only: validate input, call a service, shape the response |
-| Services | `app/services/` | Business logic and orchestration (ingestion, page fetching, chunking, embedding pipeline) |
+| Services | `app/services/` | Business logic and orchestration (ingestion, page fetching, chunking, embedding pipeline, retrieval) |
 | AI providers | `app/ai/` | Provider-agnostic interfaces (`Embedder`), one adapter per provider API, a factory that picks one from config, and shared HTTP retry/error handling |
 | Repositories | `app/repositories/` | All SQL; return domain objects |
 | Models | `app/models/` | Domain objects (`Item`, `Chunk`) and Pydantic request/response schemas |
@@ -242,6 +274,14 @@ At scale / in production: size chunks in tokens using the embedding model's toke
 - **Background processing:** `POST /ingest` stays fast and returns `pending`; a FastAPI background task embeds the chunks with its own DB connection, then writes all vectors and `status=ready` in one transaction (or `status=failed` + `error`). Already-embedded chunks are skipped, so retries cost nothing extra. The request ID is carried into the background task's logs.
 - **Free-tier caveats:** per-minute/day rate limits (handled with retries, exponential backoff and `Retry-After`; the backfill embeds one item at a time), and content sent on the free tier may be used by Google to improve its products. For private data in production, use a paid tier, another provider, or a local model (config-only change).
 - **At scale:** in-process background tasks are lost if the server restarts (items stay `pending` until the backfill runs); production would use a durable job queue (Celery/RQ/Arq) with a global rate limiter. A model change means re-embedding everything, which should run as a batch job. Storing vectors in SQLite is fine for thousands of chunks; beyond that, use a vector index (see retrieval).
+
+### Retrieval
+- **Exact brute-force cosine similarity.** All vectors from the current embedding model are loaded and scored against the query vector in one NumPy matrix product. Because vectors are stored at unit length, the dot product *is* the cosine similarity. No index to build or keep in sync, results are exact, and it stays fast (well under 50 ms) up to tens of thousands of chunks, which is plenty for a personal inbox.
+- **Query vs. document embeddings:** questions are embedded with the provider's query mode (`RETRIEVAL_QUERY` on Gemini) and chunks with document mode, which improves matching a short question against longer passages.
+- **Relevance threshold (`RETRIEVAL_MIN_SCORE`):** chunks below it are dropped, so an off-topic question gets *no* context instead of the "least irrelevant" chunks. This lets the answer step say "I don't know" rather than invent an answer from unrelated text. The useful range depends on the embedding model, so it's configurable and should be calibrated per provider.
+- **Safe by construction:** only vectors produced by the current `model_id` are compared; unembedded, failed or stale-model chunks are skipped; mismatched vector sizes are logged and ignored. An empty inbox returns no results without spending a provider call. Ties are broken by chunk id, so results are deterministic.
+- **Privacy in logs:** `retrieval.completed` records candidate count, results, top score and timing, but only the query's length, never its text.
+- **At scale:** loading every vector per query is O(n) in time and memory. Next steps, in order: cache the matrix in memory and invalidate it on writes; then use an approximate-nearest-neighbour index (sqlite-vec, FAISS, or Postgres + pgvector with HNSW). Quality improvements: hybrid search (BM25 keyword + vectors) for names and exact terms, a cross-encoder re-ranker, and per-item diversity so one long article doesn't take every top-k slot.
 
 ### Ingestion: URLs
 - **Fetched on the server** with async `httpx`, so a slow site doesn't block other requests. Limits: 10 s timeout, 5 redirects, 5 MB per page, 100,000 characters of extracted text.

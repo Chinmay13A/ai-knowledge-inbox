@@ -1,6 +1,8 @@
 import sqlite3
 from dataclasses import dataclass
 
+from app.models.item import SourceType
+
 
 @dataclass(frozen=True)
 class ChunkingConfig:
@@ -28,3 +30,17 @@ class StoredChunk:
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "StoredChunk":
         return cls(id=row["id"], item_id=row["item_id"], chunk_index=row["chunk_index"], text=row["text"])
+
+
+@dataclass(frozen=True)
+class RetrievedChunk:
+    """A chunk returned by retrieval, with its relevance score and source item."""
+
+    chunk_id: int
+    item_id: int
+    chunk_index: int
+    text: str
+    score: float  # cosine similarity, -1..1
+    item_title: str
+    item_url: str | None
+    source_type: SourceType

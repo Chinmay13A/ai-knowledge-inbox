@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.embeddings.base import Embedder
 from app.ai.embeddings.factory import build_embedder
-from app.api import health, ingest, items
+from app.api import health, ingest, items, search
 from app.config import Settings, get_settings
 from app.db import init_db
 from app.errors import register_exception_handlers
@@ -59,6 +59,7 @@ def create_app(
     app.include_router(health.router)
     app.include_router(ingest.router)
     app.include_router(items.router)
+    app.include_router(search.router)
     return app
 
 

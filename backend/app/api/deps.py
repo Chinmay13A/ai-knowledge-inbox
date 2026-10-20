@@ -3,6 +3,7 @@
 from fastapi import Request
 
 from app.ai.embeddings.base import Embedder
+from app.config import Settings
 from app.models.chunk import ChunkingConfig
 from app.services.fetcher import PageFetcher
 
@@ -21,3 +22,7 @@ def get_embedder(request: Request) -> Embedder:
 
 def get_db_path(request: Request) -> str:
     return request.app.state.settings.db_path
+
+
+def get_app_settings(request: Request) -> Settings:
+    return request.app.state.settings

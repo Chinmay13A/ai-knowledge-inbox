@@ -71,6 +71,13 @@ class EmbeddingError(AIProviderError):
     code = "embedding_failed"
 
 
+class AINotConfiguredError(EmbeddingError):
+    """The server has no credentials for the AI provider: a setup problem, not a provider outage."""
+
+    status_code = 503
+    code = "ai_not_configured"
+
+
 def error_response(
     request_id: str | None,
     status_code: int,

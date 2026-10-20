@@ -5,13 +5,17 @@ from typing import Protocol
 
 import numpy as np
 
-from app.errors import EmbeddingError
+from app.errors import AINotConfiguredError
 
 
 class Embedder(Protocol):
     # Identifies the vector space (provider + model + dimensions). Stored with every vector so
     # vectors from different models are never compared, and a config change triggers re-embedding.
     model_id: str
+
+    def check_ready(self) -> None:
+        """Raises AINotConfiguredError if this embedder cannot be used at all (e.g. no API key)."""
+        ...
 
     async def embed_documents(self, texts: list[str]) -> list[np.ndarray]:
         """Embeds stored content (chunks). Returns unit-length float32 vectors, in input order."""
@@ -28,11 +32,14 @@ class UnconfiguredEmbedder:
     model_id = "unconfigured"
     MESSAGE = "Embeddings are not configured: set EMBEDDING_API_KEY in backend/.env"
 
+    def check_ready(self) -> None:
+        raise AINotConfiguredError(self.MESSAGE)
+
     async def embed_documents(self, texts: list[str]) -> list[np.ndarray]:
-        raise EmbeddingError(self.MESSAGE)
+        raise AINotConfiguredError(self.MESSAGE)
 
     async def embed_query(self, text: str) -> np.ndarray:
-        raise EmbeddingError(self.MESSAGE)
+        raise AINotConfiguredError(self.MESSAGE)
 
 
 def build_model_id(provider: str, model: str, dimensions: int | None) -> str:

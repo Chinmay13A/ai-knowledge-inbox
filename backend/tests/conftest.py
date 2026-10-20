@@ -38,6 +38,10 @@ class FakeEmbedder:
         self.model_id = model_id
         self.error: Exception | None = None
         self.document_calls: list[list[str]] = []
+        self.query_calls: list[str] = []
+
+    def check_ready(self) -> None:
+        pass
 
     async def embed_documents(self, texts: list[str]) -> list[np.ndarray]:
         self.document_calls.append(list(texts))
@@ -46,6 +50,7 @@ class FakeEmbedder:
         return [self.vector(text) for text in texts]
 
     async def embed_query(self, text: str) -> np.ndarray:
+        self.query_calls.append(text)
         if self.error:
             raise self.error
         return self.vector(text)

@@ -36,6 +36,9 @@ class OpenAICompatibleEmbedder:
         self._max_retries = max_retries
         self._transport = transport
 
+    def check_ready(self) -> None:
+        """Configured adapters are always ready; failures surface on the actual call."""
+
     # The OpenAI format has no query/document distinction, so both use the same call.
     async def embed_documents(self, texts: list[str]) -> list[np.ndarray]:
         return await self._embed(texts)

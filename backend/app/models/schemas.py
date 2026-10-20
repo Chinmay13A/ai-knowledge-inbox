@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
+from app.models.chunk import RetrievedChunk
 from app.models.item import Item, ItemStatus, SourceType
 
 MAX_NOTE_CHARS = 50_000
@@ -75,3 +76,48 @@ class ChunkOut(BaseModel):
 class ItemChunksResponse(BaseModel):
     item_id: int
     chunks: list[ChunkOut]
+
+
+MAX_QUERY_CHARS = 1_000
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(examples=["What is retrieval-augmented generation?"])
+    top_k: int | None = Field(default=None, ge=1, le=20, description="Defaults to RETRIEVAL_TOP_K")
+
+    @field_validator("query")
+    @classmethod
+    def query_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("must not be blank")
+        if len(value) > MAX_QUERY_CHARS:
+            raise ValueError(f"must be at most {MAX_QUERY_CHARS} characters")
+        return value
+
+
+class SearchResult(BaseModel):
+    item_id: int
+    item_title: str
+    item_url: str | None
+    source_type: SourceType
+    chunk_index: int
+    text: str
+    score: float
+
+    @classmethod
+    def from_chunk(cls, chunk: RetrievedChunk) -> "SearchResult":
+        return cls(
+            item_id=chunk.item_id,
+            item_title=chunk.item_title,
+            item_url=chunk.item_url,
+            source_type=chunk.source_type,
+            chunk_index=chunk.chunk_index,
+            text=chunk.text,
+            score=round(chunk.score, 4),
+        )
+
+
+class SearchResponse(BaseModel):
+    query: str
+    results: list[SearchResult]
