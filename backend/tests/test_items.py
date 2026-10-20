@@ -43,3 +43,24 @@ def test_invalid_query_params_are_rejected(client: TestClient, params: dict) -> 
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
+
+
+class TestItemChunks:
+    def test_returns_chunks_of_item(self, client: TestClient) -> None:
+        item = add_note(client, "Line one.\nLine two.")
+
+        body = client.get(f"/items/{item['id']}/chunks").json()
+
+        assert body == {"item_id": item["id"], "chunks": [{"index": 0, "text": "Line one.\nLine two.", "chars": 19}]}
+
+    def test_unknown_item_is_404(self, client: TestClient) -> None:
+        response = client.get("/items/999/chunks")
+
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "item_not_found"
+        assert response.json()["error"]["message"] == "Item 999 not found"
+
+    def test_non_numeric_id_is_422(self, client: TestClient) -> None:
+        response = client.get("/items/abc/chunks")
+
+        assert response.status_code == 422

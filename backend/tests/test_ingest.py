@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from app.db import connect
 from app.errors import (
     EmptyContentError,
     RobotsDisallowedError,
@@ -10,6 +11,7 @@ from app.errors import (
     UrlNotAllowedError,
 )
 from app.models.schemas import MAX_NOTE_CHARS
+from app.repositories import chunks_repo
 from app.services.fetcher import FetchedPage
 from app.services.ingest_service import derive_title
 from tests.conftest import StubFetcher, add_note
@@ -133,3 +135,43 @@ class TestDeriveTitle:
 
         assert len(title) <= 80
         assert title.endswith("…")
+
+
+class TestChunking:
+    def test_note_is_chunked_on_ingest(self, client: TestClient) -> None:
+        item = add_note(client, "A short note about embeddings.")
+
+        assert item["chunk_count"] == 1
+        assert client.get("/items").json()["items"][0]["chunk_count"] == 1
+
+    def test_long_page_is_split_into_ordered_chunks(self, client: TestClient, fetcher: StubFetcher) -> None:
+        long_text = "\n".join(f"Paragraph {i}. " + "Retrieval finds relevant context for the model. " * 4 for i in range(25))
+        fetcher.result = FetchedPage(url="https://example.com/long", title="Long article", text=long_text)
+
+        item = client.post("/ingest", json={"type": "url", "url": "https://example.com/long"}).json()
+        chunks = client.get(f"/items/{item['id']}/chunks").json()["chunks"]
+
+        assert item["chunk_count"] == len(chunks) > 1
+        assert [c["index"] for c in chunks] == list(range(len(chunks)))
+        assert all(c["chars"] == len(c["text"]) <= 800 for c in chunks)
+        assert chunks[0]["text"].startswith("Paragraph 0.")
+
+    def test_failed_fetch_stores_no_chunks(self, client: TestClient, fetcher: StubFetcher, app) -> None:
+        fetcher.result = UrlFetchError("Site responded with 500")
+
+        client.post("/ingest", json={"type": "url", "url": "https://example.com"})
+
+        conn = connect(app.state.settings.db_path)
+        assert conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0] == 0
+        conn.close()
+
+    def test_item_and_chunks_are_saved_atomically(self, app, monkeypatch: pytest.MonkeyPatch) -> None:
+        def broken_insert(*args, **kwargs) -> None:
+            raise RuntimeError("disk full")
+
+        monkeypatch.setattr(chunks_repo, "insert_chunks", broken_insert)
+
+        with TestClient(app) as client:
+            response = client.post("/ingest", json={"type": "note", "content": "Will be rolled back"})
+            assert response.status_code == 500
+            assert client.get("/items").json()["total"] == 0

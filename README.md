@@ -36,6 +36,9 @@ uvicorn app.main:app --reload --port 8000
 - API docs (Swagger): http://localhost:8000/docs
 - Health check: http://localhost:8000/health
 - Tests: `pytest`
+- Backfill chunks for items saved by an older version: `python -m app.scripts.reindex`
+
+Configuration lives in `backend/.env` (see `.env.example`): log level, CORS origins, DB path, URL fetch limits, `RESPECT_ROBOTS_TXT`, and chunking (`CHUNK_SIZE_CHARS`, `CHUNK_OVERLAP_CHARS`). Invalid values fail at startup with a clear message.
 
 ### Frontend
 
@@ -72,6 +75,7 @@ curl -X POST http://localhost:8000/ingest \
   "url": null,
   "status": "pending",
   "created_at": "2026-10-20T12:00:00+00:00",
+  "chunk_count": 1,
   "preview": "Meeting notes: ship v1 by Friday"
 }
 ```
@@ -101,7 +105,21 @@ curl "http://localhost:8000/items?limit=50&offset=0"
 { "items": [ { "id": 1, "source_type": "note", "...": "..." } ], "total": 1, "limit": 50, "offset": 0 }
 ```
 
-`limit` is 1–200 (default 50), `offset` ≥ 0.
+`limit` is 1–200 (default 50), `offset` ≥ 0. Each item includes `chunk_count`.
+
+### `GET /items/{id}/chunks` — inspect chunking (debugging aid)
+
+Not one of the three required endpoints: it shows exactly what text will be embedded and retrieved for an item.
+
+```bash
+curl http://localhost:8000/items/2/chunks
+```
+
+```json
+{ "item_id": 2, "chunks": [ { "index": 0, "text": "Retrieval-augmented generation ...", "chars": 732 }, "..." ] }
+```
+
+Unknown item → `404 item_not_found`.
 
 ### Errors
 
@@ -121,6 +139,7 @@ Every error uses the same shape:
 | Status | `code` | When |
 |---|---|---|
 | 400 | `invalid_json` | Request body is not valid JSON |
+| 404 | `item_not_found` | No item with that ID |
 | 404 / 405 | `http_error` | Unknown route or wrong method |
 | 422 | `validation_error` | Body or query parameters fail validation |
 | 422 | `url_not_allowed` | URL points to a private/internal address, or its host can't be resolved |
@@ -144,8 +163,9 @@ Every error uses the same shape:
 | API | `app/api/` | HTTP only: validate input, call a service, shape the response |
 | Services | `app/services/` | Business logic and orchestration (ingestion, page fetching) |
 | Repositories | `app/repositories/` | All SQL; return domain objects |
-| Models | `app/models/` | `Item` domain object and Pydantic request/response schemas |
+| Models | `app/models/` | Domain objects (`Item`, `Chunk`) and Pydantic request/response schemas |
 | Cross-cutting | `app/errors.py`, `app/middleware.py`, `app/logging_config.py`, `app/db.py` | Error format, request context, logging, DB connection |
+| Scripts | `app/scripts/` | Maintenance commands (e.g. `reindex` backfill) |
 
 ## Design decisions & tradeoffs
 
@@ -153,11 +173,30 @@ Every error uses the same shape:
 - One file, no extra infrastructure, and enough for a single-user inbox. WAL mode lets reads continue during a write.
 - Plain `sqlite3` behind a small repository layer instead of an ORM: the schema is tiny, all SQL lives in one module, and moving to Postgres later only touches the repositories.
 - One connection per request; schema is created on startup with `CREATE TABLE IF NOT EXISTS` (additive only, no migration tool needed yet).
+- Two tables: `items` (raw content + metadata) and `chunks` (`item_id`, `chunk_index`, `text`, and an `embedding` column filled in by the embedding step). Chunks are deleted with their item (`ON DELETE CASCADE`).
+- An item and its chunks are written in **one transaction**, so a failure can never leave an item without chunks (or orphan chunks). Repositories only run SQL; the service layer owns the transaction.
 - **At scale:** SQLite allows one writer at a time, and the DB lives on a single machine. Production would use Postgres with a migration tool (e.g. Alembic).
 
 ### API
 - `POST /ingest` takes one payload whose `type` field (`note` | `url`) decides which fields are required. One endpoint, but each shape is validated strictly.
 - `GET /items` returns previews instead of full content to keep the list response small, and uses limit/offset paging. **At scale:** offset paging gets slow on deep pages, so switch to cursor-based paging (`?before=<id>`).
+
+### Chunking strategy
+Implemented in `app/services/chunker.py` as pure, deterministic functions. Defaults: **800 characters per chunk, 100 characters of overlap**.
+
+1. Normalize whitespace and split the text into blocks on line breaks (paragraphs, list items, headings). Both notes and extracted web pages use line breaks as structure.
+2. Keep each block whole if it fits; otherwise split it at **sentence** boundaries, and a sentence that's still too long at **word** boundaries. Only a single "word" longer than a chunk (e.g. a huge URL) is ever cut.
+3. Greedily pack blocks/sentences into chunks of at most 800 characters.
+4. Start each chunk with the last ≤100 characters of the previous one (snapped to a word boundary).
+
+Why:
+- **~800 characters (≈150–200 tokens, one or two paragraphs)** keeps each chunk focused on one idea, so retrieval is precise and the snippet shown as a citation is short enough to read. Much larger chunks dilute the embedding with unrelated content; much smaller ones lose context.
+- **Respecting paragraph and sentence boundaries** keeps ideas intact; fixed-width slicing would cut sentences in half and produce confusing snippets.
+- **Overlap** (~12% extra storage) means a fact that straddles a boundary still appears whole in at least one chunk.
+- **Characters instead of tokens:** no tokenizer dependency, easy to reason about and test, and far below any embedding model's input limit (~4 characters per token).
+- Example: the Wikipedia article on RAG (15,404 characters) becomes 28 chunks.
+
+At scale / in production: size chunks in tokens using the embedding model's tokenizer; use heading-aware or semantic chunking (split where the topic changes); apply per-content-type strategies (code, tables); prefix chunks with the document title for extra context; store character offsets to highlight the exact passage in the source.
 
 ### Ingestion: URLs
 - **Fetched on the server** with async `httpx`, so a slow site doesn't block other requests. Limits: 10 s timeout, 5 redirects, 5 MB per page, 100,000 characters of extracted text.

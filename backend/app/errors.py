@@ -25,6 +25,11 @@ class AppError(Exception):
         self.message = message
 
 
+class ItemNotFoundError(AppError):
+    status_code = 404
+    code = "item_not_found"
+
+
 class UrlNotAllowedError(AppError):
     status_code = 422
     code = "url_not_allowed"

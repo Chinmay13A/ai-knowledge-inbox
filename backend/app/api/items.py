@@ -3,8 +3,9 @@ import sqlite3
 from fastapi import APIRouter, Depends, Query
 
 from app.db import get_db
-from app.models.schemas import ItemListResponse, ItemOut
-from app.repositories import items_repo
+from app.errors import ItemNotFoundError
+from app.models.schemas import ChunkOut, ItemChunksResponse, ItemListResponse, ItemOut
+from app.repositories import chunks_repo, items_repo
 
 router = APIRouter(tags=["items"])
 
@@ -21,4 +22,19 @@ def list_items(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get(
+    "/items/{item_id}/chunks",
+    response_model=ItemChunksResponse,
+    summary="Inspect how an item was chunked (debugging aid)",
+)
+def list_item_chunks(item_id: int, conn: sqlite3.Connection = Depends(get_db)) -> ItemChunksResponse:
+    if items_repo.get_item(conn, item_id) is None:
+        raise ItemNotFoundError(f"Item {item_id} not found")
+    chunks = chunks_repo.list_chunks(conn, item_id)
+    return ItemChunksResponse(
+        item_id=item_id,
+        chunks=[ChunkOut(index=c.chunk_index, text=c.text, chars=len(c.text)) for c in chunks],
     )

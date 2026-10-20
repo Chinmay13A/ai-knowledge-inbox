@@ -19,6 +19,16 @@ CREATE TABLE IF NOT EXISTS items (
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_items_created_at ON items(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS chunks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    chunk_index INTEGER NOT NULL,
+    text        TEXT NOT NULL,
+    embedding   BLOB,
+    UNIQUE (item_id, chunk_index)
+);
+CREATE INDEX IF NOT EXISTS idx_chunks_item_id ON chunks(item_id);
 """
 
 

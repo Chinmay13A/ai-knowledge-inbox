@@ -18,6 +18,7 @@ class Item:
     status: ItemStatus
     error: str | None
     created_at: str
+    chunk_count: int = 0
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Item":

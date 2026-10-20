@@ -2,7 +2,10 @@
 
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.models.chunk import ChunkingConfig
 
 
 class Settings(BaseSettings):
@@ -18,6 +21,22 @@ class Settings(BaseSettings):
     fetch_timeout_s: float = 10.0
     fetch_max_bytes: int = 5_000_000
     respect_robots_txt: bool = True
+
+    # Chunking (characters; ~4 characters per token)
+    chunk_size_chars: int = 800
+    chunk_overlap_chars: int = 100
+
+    @model_validator(mode="after")
+    def _check_chunking(self) -> "Settings":
+        if self.chunk_size_chars < 100:
+            raise ValueError("CHUNK_SIZE_CHARS must be at least 100")
+        if not 0 <= self.chunk_overlap_chars < self.chunk_size_chars // 2:
+            raise ValueError("CHUNK_OVERLAP_CHARS must be >= 0 and less than half of CHUNK_SIZE_CHARS")
+        return self
+
+    @property
+    def chunking(self) -> ChunkingConfig:
+        return ChunkingConfig(size=self.chunk_size_chars, overlap=self.chunk_overlap_chars)
 
     @property
     def cors_origin_list(self) -> list[str]:

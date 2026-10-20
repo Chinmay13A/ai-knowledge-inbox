@@ -40,6 +40,7 @@ class ItemOut(BaseModel):
     url: str | None
     status: ItemStatus
     created_at: str
+    chunk_count: int
     preview: str
 
     @classmethod
@@ -51,6 +52,7 @@ class ItemOut(BaseModel):
             url=item.url,
             status=item.status,
             created_at=item.created_at,
+            chunk_count=item.chunk_count,
             preview=item.content[:PREVIEW_CHARS],
         )
 
@@ -60,3 +62,14 @@ class ItemListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class ChunkOut(BaseModel):
+    index: int
+    text: str
+    chars: int
+
+
+class ItemChunksResponse(BaseModel):
+    item_id: int
+    chunks: list[ChunkOut]
