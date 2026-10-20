@@ -8,7 +8,7 @@ from app.ai.embeddings.factory import build_embedder
 from app.ai.embeddings.gemini import GeminiEmbedder
 from app.ai.embeddings.openai_compatible import OpenAICompatibleEmbedder
 from app.config import Settings
-from app.errors import EmbeddingError
+from app.errors import AINotConfiguredError
 
 
 def settings(**overrides: object) -> Settings:
@@ -49,7 +49,7 @@ def test_missing_gemini_key_gives_unconfigured_embedder() -> None:
     embedder = build_embedder(settings())
 
     assert isinstance(embedder, UnconfiguredEmbedder)
-    with pytest.raises(EmbeddingError, match="set EMBEDDING_API_KEY"):
+    with pytest.raises(AINotConfiguredError, match="set EMBEDDING_API_KEY"):
         asyncio.run(embedder.embed_documents(["a"]))
 
 

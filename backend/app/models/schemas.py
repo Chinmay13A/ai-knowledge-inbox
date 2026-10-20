@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator
 
+from app.models.answer import Answer
 from app.models.chunk import RetrievedChunk
 from app.models.item import Item, ItemStatus, SourceType
 
@@ -88,12 +89,7 @@ class SearchRequest(BaseModel):
     @field_validator("query")
     @classmethod
     def query_not_blank(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("must not be blank")
-        if len(value) > MAX_QUERY_CHARS:
-            raise ValueError(f"must be at most {MAX_QUERY_CHARS} characters")
-        return value
+        return _clean_question(value)
 
 
 class SearchResult(BaseModel):
@@ -121,3 +117,65 @@ class SearchResult(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     results: list[SearchResult]
+
+
+class QueryRequest(BaseModel):
+    question: str = Field(examples=["What is retrieval-augmented generation?"])
+    top_k: int | None = Field(default=None, ge=1, le=20, description="Defaults to RETRIEVAL_TOP_K")
+
+    @field_validator("question")
+    @classmethod
+    def question_not_blank(cls, value: str) -> str:
+        return _clean_question(value)
+
+
+class QuerySource(BaseModel):
+    id: int = Field(description="The number used in the answer's [n] citations")
+    cited: bool = Field(description="Whether the answer cites this source")
+    item_id: int
+    item_title: str
+    item_url: str | None
+    source_type: SourceType
+    chunk_index: int
+    snippet: str
+    score: float
+
+
+class QueryResponse(BaseModel):
+    question: str
+    answer: str
+    sources: list[QuerySource]
+    model: str | None = Field(description="LLM that wrote the answer; null if nothing relevant was found")
+    truncated: bool = Field(description="True if the answer hit the output token limit")
+
+    @classmethod
+    def from_answer(cls, question: str, answer: Answer) -> "QueryResponse":
+        return cls(
+            question=question,
+            answer=answer.text,
+            sources=[
+                QuerySource(
+                    id=number,
+                    cited=number in answer.cited,
+                    item_id=chunk.item_id,
+                    item_title=chunk.item_title,
+                    item_url=chunk.item_url,
+                    source_type=chunk.source_type,
+                    chunk_index=chunk.chunk_index,
+                    snippet=chunk.text,
+                    score=round(chunk.score, 4),
+                )
+                for number, chunk in enumerate(answer.sources, start=1)
+            ],
+            model=answer.model_id,
+            truncated=answer.truncated,
+        )
+
+
+def _clean_question(value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError("must not be blank")
+    if len(value) > MAX_QUERY_CHARS:
+        raise ValueError(f"must be at most {MAX_QUERY_CHARS} characters")
+    return value

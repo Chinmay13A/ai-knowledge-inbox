@@ -9,7 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.ai.embeddings.base import Embedder
 from app.ai.embeddings.factory import build_embedder
-from app.api import health, ingest, items, search
+from app.ai.llm.base import ChatModel
+from app.ai.llm.factory import build_chat_model
+from app.api import health, ingest, items, query, search
 from app.config import Settings, get_settings
 from app.db import init_db
 from app.errors import register_exception_handlers
@@ -32,6 +34,7 @@ def create_app(
     settings: Settings | None = None,
     fetcher: PageFetcher | None = None,
     embedder: Embedder | None = None,
+    chat_model: ChatModel | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     setup_logging(settings.log_level)
@@ -44,6 +47,7 @@ def create_app(
         respect_robots_txt=settings.respect_robots_txt,
     )
     app.state.embedder = embedder or build_embedder(settings)
+    app.state.chat_model = chat_model or build_chat_model(settings)
 
     # Added last-to-first: RequestContextMiddleware runs inside CORS.
     app.add_middleware(RequestContextMiddleware)
@@ -60,6 +64,7 @@ def create_app(
     app.include_router(ingest.router)
     app.include_router(items.router)
     app.include_router(search.router)
+    app.include_router(query.router)
     return app
 
 

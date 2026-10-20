@@ -3,6 +3,7 @@
 from fastapi import Request
 
 from app.ai.embeddings.base import Embedder
+from app.ai.llm.base import ChatModel
 from app.config import Settings
 from app.models.chunk import ChunkingConfig
 from app.services.fetcher import PageFetcher
@@ -26,3 +27,7 @@ def get_db_path(request: Request) -> str:
 
 def get_app_settings(request: Request) -> Settings:
     return request.app.state.settings
+
+
+def get_chat_model(request: Request) -> ChatModel:
+    return request.app.state.chat_model

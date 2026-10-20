@@ -71,7 +71,11 @@ class EmbeddingError(AIProviderError):
     code = "embedding_failed"
 
 
-class AINotConfiguredError(EmbeddingError):
+class LLMError(AIProviderError):
+    code = "llm_failed"
+
+
+class AINotConfiguredError(AIProviderError):
     """The server has no credentials for the AI provider: a setup problem, not a provider outage."""
 
     status_code = 503
